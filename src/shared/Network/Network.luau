@@ -118,15 +118,21 @@ function singleton:Init()
 	end
 
 	if RunService:IsServer() then
-		(self._reliable :: RemoteEvent).OnServerEvent:Connect(function(player: Player, packetName: string, ...: any)
+		local reliable = self._reliable :: RemoteEvent
+		local unreliable = self._unreliable :: UnreliableRemoteEvent
+		local func = self._func :: RemoteFunction
+
+		reliable.OnServerEvent:Connect(function(player: Player, packetName: string, ...: any)
 			local be = getSignal(self._reliableSignals, packetName)
 			be:Fire(player, ...)
 		end)
-		(self._unreliable :: UnreliableRemoteEvent).OnServerEvent:Connect(function(player: Player, packetName: string, ...: any)
+
+		unreliable.OnServerEvent:Connect(function(player: Player, packetName: string, ...: any)
 			local be = getSignal(self._unreliableSignals, packetName)
 			be:Fire(player, ...)
 		end)
-		(self._func :: RemoteFunction).OnServerInvoke = function(player: Player, packetName: string, ...: any)
+
+		func.OnServerInvoke = function(player: Player, packetName: string, ...: any)
 			local handler = self._functionHandlers[packetName]
 			if not handler then
 				warn(`[Network] Unhandled RemoteFunction packet: {packetName}`)
@@ -135,15 +141,21 @@ function singleton:Init()
 			return handler(player, ...)
 		end
 	else
-		(self._reliable :: RemoteEvent).OnClientEvent:Connect(function(packetName: string, ...: any)
+		local reliable = self._reliable :: RemoteEvent
+		local unreliable = self._unreliable :: UnreliableRemoteEvent
+		local func = self._func :: RemoteFunction
+
+		reliable.OnClientEvent:Connect(function(packetName: string, ...: any)
 			local be = getSignal(self._reliableSignals, packetName)
 			be:Fire(...)
 		end)
-		(self._unreliable :: UnreliableRemoteEvent).OnClientEvent:Connect(function(packetName: string, ...: any)
+
+		unreliable.OnClientEvent:Connect(function(packetName: string, ...: any)
 			local be = getSignal(self._unreliableSignals, packetName)
 			be:Fire(...)
 		end)
-		(self._func :: RemoteFunction).OnClientInvoke = function(packetName: string, ...: any)
+
+		func.OnClientInvoke = function(packetName: string, ...: any)
 			local handler = self._functionHandlers[packetName]
 			if not handler then
 				warn(`[Network] Unhandled RemoteFunction packet: {packetName}`)
@@ -173,50 +185,58 @@ end
 function singleton:FireRemoteToClient(player: Player, packetName: string, ...: any)
 	self:Init()
 	assert(RunService:IsServer(), "FireRemoteToClient can only be called on the server")
-	(self._reliable :: RemoteEvent):FireClient(player, packetName, ...)
+	local reliable = self._reliable :: RemoteEvent
+	reliable:FireClient(player, packetName, ...)
 end
 
 function singleton:FireRemoteToAllClients(packetName: string, ...: any)
 	self:Init()
 	assert(RunService:IsServer(), "FireRemoteToAllClients can only be called on the server")
-	(self._reliable :: RemoteEvent):FireAllClients(packetName, ...)
+	local reliable = self._reliable :: RemoteEvent
+	reliable:FireAllClients(packetName, ...)
 end
 
 function singleton:FireUnreliableRemoteToClient(player: Player, packetName: string, ...: any)
 	self:Init()
 	assert(RunService:IsServer(), "FireUnreliableRemoteToClient can only be called on the server")
-	(self._unreliable :: UnreliableRemoteEvent):FireClient(player, packetName, ...)
+	local unreliable = self._unreliable :: UnreliableRemoteEvent
+	unreliable:FireClient(player, packetName, ...)
 end
 
 function singleton:FireUnreliableRemoteToAllClients(packetName: string, ...: any)
 	self:Init()
 	assert(RunService:IsServer(), "FireUnreliableRemoteToAllClients can only be called on the server")
-	(self._unreliable :: UnreliableRemoteEvent):FireAllClients(packetName, ...)
+	local unreliable = self._unreliable :: UnreliableRemoteEvent
+	unreliable:FireAllClients(packetName, ...)
 end
 
 function singleton:FireRemoteFunctionToClient(player: Player, packetName: string, ...: any): any
 	self:Init()
 	assert(RunService:IsServer(), "FireRemoteFunctionToClient can only be called on the server")
-	return (self._func :: RemoteFunction):InvokeClient(player, packetName, ...)
+	local func = self._func :: RemoteFunction
+	return func:InvokeClient(player, packetName, ...)
 end
 
 -- Client -> Server
 function singleton:FireRemoteToServer(packetName: string, ...: any)
 	self:Init()
 	assert(not RunService:IsServer(), "FireRemoteToServer can only be called on the client")
-	(self._reliable :: RemoteEvent):FireServer(packetName, ...)
+	local reliable = self._reliable :: RemoteEvent
+	reliable:FireServer(packetName, ...)
 end
 
 function singleton:FireUnreliableRemoteToServer(packetName: string, ...: any)
 	self:Init()
 	assert(not RunService:IsServer(), "FireUnreliableRemoteToServer can only be called on the client")
-	(self._unreliable :: UnreliableRemoteEvent):FireServer(packetName, ...)
+	local unreliable = self._unreliable :: UnreliableRemoteEvent
+	unreliable:FireServer(packetName, ...)
 end
 
 function singleton:FireRemoteFunctionToServer(packetName: string, ...: any): any
 	self:Init()
 	assert(not RunService:IsServer(), "FireRemoteFunctionToServer can only be called on the client")
-	return (self._func :: RemoteFunction):InvokeServer(packetName, ...)
+	local func = self._func :: RemoteFunction
+	return func:InvokeServer(packetName, ...)
 end
 
 return singleton
