@@ -75,12 +75,6 @@ end
 
 function singleton:Equip(name: string)
 	if self._vm then
-		self._vm:Inspect()
-	end
-end
-
-function singleton:Equip(name: string)
-	if self._vm then
 		self._vm:Equip(name)
 	end
 end
