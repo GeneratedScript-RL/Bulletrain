@@ -1,6 +1,7 @@
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local ContentProvider = game:GetService("ContentProvider")
 
 export type MarkerCallbacks = {[string]: (...any) -> ()}
 export type AnimationCache = {
@@ -210,6 +211,39 @@ end
 -- Read-only access to the cache for external inspection
 function AnimationService:GetCache(): AnimationCache
 	return self_data.AnimationTracks
+end
+
+local function preloadFromFolder(folder: Instance)
+	task.spawn(function()
+		for _, item in pairs(folder:GetDescendants()) do
+			if item:IsA("Animation") then
+				ContentProvider:PreloadAsync({item})
+			end
+		end
+	end)
+end
+
+function AnimationService:Initialize()
+	-- Preload all animations in the Assets folders
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if not assets then
+		warn("[AnimationService] ReplicatedStorage.Assets missing, cannot preload animations")
+		return
+	end
+
+	local avatarFolder = assets:FindFirstChild("AvatarAnimations")
+	if avatarFolder then
+		preloadFromFolder(avatarFolder)
+	else
+		warn("[AnimationService] Assets.AvatarAnimations missing, cannot preload avatar animations")
+	end
+
+	local viewmodelFolder = assets:FindFirstChild("ViewmodelAnimations")
+	if viewmodelFolder then
+		preloadFromFolder(viewmodelFolder)
+	else
+		warn("[AnimationService] Assets.ViewmodelAnimations missing, cannot preload viewmodel animations")
+	end
 end
 
 return setmetatable(self_data, AnimationService)

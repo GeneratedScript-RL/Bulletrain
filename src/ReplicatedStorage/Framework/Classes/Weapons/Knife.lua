@@ -93,8 +93,8 @@ function Knife:Parry()
 	self._parrySuccessPlayed = false
 
 	-- Parry: viewmodel + avatar
-	AnimationService:PlayAnimation(self.Animator, "KnifeParry", Enum.AnimationPriority.Action3)
-	AnimationService:PlayAnimationToAvatar("KnifeParry", Enum.AnimationPriority.Action3)
+	AnimationService:PlayAnimation(self.Animator, "KnifeParry", Enum.AnimationPriority.Action3, false)
+	AnimationService:PlayAnimationToAvatar("KnifeParry", Enum.AnimationPriority.Action3, false)
 
 	Network:FireRemoteToServer("KnifeParryStart")
 
