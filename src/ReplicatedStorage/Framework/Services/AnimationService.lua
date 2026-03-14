@@ -75,7 +75,7 @@ local function loadAndPlay(
 	local cache = isViewmodel and self_data.AnimationTracks.Viewmodel or self_data.AnimationTracks.Avatar
 
 	local cached = cache[cacheKey]
-	if cached and not cached.Stopped then
+	if cached then
 		-- Reuse existing track if still valid
 		cached.Priority = priority
 		cached.Looped = looped or false
@@ -190,7 +190,7 @@ function AnimationService:GetAnimation(
 	local cache = isViewmodel and self_data.AnimationTracks.Viewmodel or self_data.AnimationTracks.Avatar
 	local cached = cache[animName]
 	if cached then
-		if not cached.Stopped then return cached end
+		return cached
 	end
 
 	local track = animator:LoadAnimation(animation)

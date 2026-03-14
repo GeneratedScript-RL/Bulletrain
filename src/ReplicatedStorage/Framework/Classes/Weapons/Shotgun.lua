@@ -77,11 +77,8 @@ function Shotgun.new(localPlayer: Player, camera: Camera, vmodel: Model)
 	self.InspectTrack    = AnimationService:GetAnimation(self.Animator, "ShotgunInspect", Enum.AnimationPriority.Action2)
 
 	-- Idle: viewmodel + avatar
-	task.defer(function()
-		task.wait(2)
-		self.IdleTrack       = AnimationService:PlayAnimation(self.Animator, "ShotgunIdle", Enum.AnimationPriority.Action, true) :: AnimationTrack
-		self.IdleTrackAvatar = AnimationService:PlayAnimationToAvatar("ShotgunIdle", Enum.AnimationPriority.Action, true)
-	end)
+	self.IdleTrack       = AnimationService:PlayAnimation(self.Animator, "ShotgunIdle", Enum.AnimationPriority.Action, true) :: AnimationTrack
+	self.IdleTrackAvatar = AnimationService:PlayAnimationToAvatar("ShotgunIdle", Enum.AnimationPriority.Action, true)
 
 	-- Run: viewmodel + avatar (preloaded, not auto-playing)
 	self.RunTrack        = AnimationService:GetAnimation(self.Animator, "ShotgunRun", Enum.AnimationPriority.Action2, true)
@@ -90,7 +87,8 @@ function Shotgun.new(localPlayer: Player, camera: Camera, vmodel: Model)
 	_G.Viewmodel = {"Shotgun", self}
 
 	RunService.RenderStepped:Connect(function()
-		if self.character and self.character:FindFirstChild("Humanoid") and self.character:FindFirstChild("HumanoidRootPart") then else return end
+		if not (self.character and self.character:FindFirstChild("Humanoid") and self.character:FindFirstChild("HumanoidRootPart")) then return end
+		if not self.RunTrack or not self.RunTrackAvatar then return end
 		local HRP = self.character:FindFirstChild("HumanoidRootPart") :: BasePart
 		local speed = (HRP.AssemblyLinearVelocity * Vector3.new(1, 0, 1)).Magnitude
 
@@ -146,7 +144,7 @@ function Shotgun:PrimaryFire()
 	local originCFrame = camera.CFrame * CFrame.new(2, -1, -2.5)
 	local direction    = camera.CFrame.LookVector
 
-	self.InspectTrack:Stop()
+	if self.InspectTrack then self.InspectTrack:Stop() end
 	Network:FireRemoteToServer("ShotgunFire", originCFrame.Position, direction)
 
 	-- Fire anim: viewmodel + avatar
@@ -154,7 +152,9 @@ function Shotgun:PrimaryFire()
 	AnimationService:PlayAnimationToAvatar("ShotgunFire", Enum.AnimationPriority.Action3)
 
 	task.defer(function()
-		vmAnim.Stopped:Wait()
+		if vmAnim then
+			vmAnim.Stopped:Wait()
+		end
 		self.OnCooldown = false
 	end)
 
@@ -209,15 +209,19 @@ end
 
 -- Viewmodel-only: no avatar inspect animation
 function Shotgun:Inspect()
-	self.InspectTrack:Play()
+	if self.InspectTrack then self.InspectTrack:Play() end
+end
+
+function Shotgun:Parry()
+	-- No-op: parry is Knife-only
 end
 
 function Shotgun:Destroy()
 	-- Stop all looped tracks so they don't bleed into the next equipped weapon
-	self.IdleTrack:Stop()
-	self.IdleTrackAvatar:Stop()
-	self.RunTrack:Stop()
-	self.RunTrackAvatar:Stop()
+	if self.IdleTrack then self.IdleTrack:Stop() end
+	if self.IdleTrackAvatar then self.IdleTrackAvatar:Stop() end
+	if self.RunTrack then self.RunTrack:Stop() end
+	if self.RunTrackAvatar then self.RunTrackAvatar:Stop() end
 
 	if self._cosmeticFolder then
 		self._cosmeticFolder:Destroy()

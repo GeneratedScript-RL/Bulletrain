@@ -10,15 +10,6 @@ local AnimationService = require(script.Parent.Parent.Services.AnimationService)
 local AvatarAnimationReplicationComponent = {}
 AvatarAnimationReplicationComponent.__index = AvatarAnimationReplicationComponent
 
-local function findPlayerByUserId(userId: number): Player?
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p.UserId == userId then
-			return p
-		end
-	end
-	return nil
-end
-
 function AvatarAnimationReplicationComponent:Initialize()
 	local player = Players.LocalPlayer :: Player
 	local character = player.Character or player.CharacterAdded:Wait()
@@ -26,11 +17,11 @@ function AvatarAnimationReplicationComponent:Initialize()
 	
 	player.CharacterAdded:Connect(function(char)
 		character = char
-		humanoid = char:WaitForChild("Humanoid")
+		humanoid = char:WaitForChild("Humanoid") :: Humanoid
 	end)
 	
-	Network:SubscribeToPacket("AnimateAvatar"):Connect(function(animName: string, priority: Enum.AnimationPriority?, fadeTime: number?)
-		AnimationService:PlayAnimation(humanoid, animName, priority or Enum.AnimationPriority.Action, fadeTime)
+	Network:SubscribeToPacket("AnimateAvatar"):Connect(function(animName: string, priority: Enum.AnimationPriority?, looped: boolean?)
+		AnimationService:PlayAnimation(humanoid, animName, priority or Enum.AnimationPriority.Action, looped)
 	end)
 end
 

@@ -141,7 +141,7 @@ function singleton:_runMatchTimer()
 	local startTime = os.clock()
 	while self._matchRunning do
 		local elapsed = os.clock() - startTime
-		local topPlayer, topKills = ScoreService:GetTopPlayer()
+		local _topPlayer, topKills = ScoreService:GetTopPlayer()
 		if topKills >= KILL_LIMIT then
 			self:_endMatch("KillLimit")
 			return
@@ -178,7 +178,7 @@ function singleton:Initialize()
 		self:_tryJoinMatch(player)
 	end)
 
-		task.spawn(function()
+	task.spawn(function()
 		while true do
 			setAllStates("Menu")
 			for _, player in ipairs(Players:GetPlayers()) do

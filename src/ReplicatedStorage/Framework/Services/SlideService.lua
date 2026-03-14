@@ -103,8 +103,7 @@ end
 function singleton:_startSlide()
 	if self._sliding then return end
 	
-	local _vm = ViewmodelService._vm
-	local viewmodel = _vm._vmModel
+	if not ViewmodelService._vm then return end
 	
 	local name
 	

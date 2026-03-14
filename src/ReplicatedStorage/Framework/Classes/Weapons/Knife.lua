@@ -44,7 +44,8 @@ function Knife.new(localPlayer: Player, camera: Camera, vmodel: Model)
 	end)
 
 	RunService.RenderStepped:Connect(function()
-		if self.character and self.character:FindFirstChild("Humanoid") and self.character:FindFirstChild("HumanoidRootPart") then else return end
+		if not (self.character and self.character:FindFirstChild("Humanoid") and self.character:FindFirstChild("HumanoidRootPart")) then return end
+		if not self.RunTrack or not self.RunTrackAvatar then return end
 		local HRP = self.character:FindFirstChild("HumanoidRootPart") :: BasePart
 		local speed = (HRP.AssemblyLinearVelocity * Vector3.new(1, 0, 1)).Magnitude
 
@@ -79,7 +80,9 @@ function Knife:PrimaryFire()
 	AnimationService:PlayAnimationToAvatar("KnifeSwing" .. variant, Enum.AnimationPriority.Action3)
 
 	task.defer(function()
-		vmAnim.Stopped:Wait()
+		if vmAnim then
+			vmAnim.Stopped:Wait()
+		end
 		self.OnCooldown = false
 	end)
 end
@@ -114,10 +117,10 @@ function Knife:Destroy()
 	end
 
 	-- Stop all looped tracks so they don't bleed into the next equipped weapon
-	self.IdleTrack:Stop()
-	self.IdleTrackAvatar:Stop()
-	self.RunTrack:Stop()
-	self.RunTrackAvatar:Stop()
+	if self.IdleTrack then self.IdleTrack:Stop() end
+	if self.IdleTrackAvatar then self.IdleTrackAvatar:Stop() end
+	if self.RunTrack then self.RunTrack:Stop() end
+	if self.RunTrackAvatar then self.RunTrackAvatar:Stop() end
 end
 
 return Knife

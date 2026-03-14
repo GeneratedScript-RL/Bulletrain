@@ -53,7 +53,7 @@ end
 
 local function switch(_actionName: string, inputState: Enum.UserInputState)
 	if inputState == Enum.UserInputState.Change then
-		if ViewmodelService._vm._weapon.Name == "Knife" then
+		if ViewmodelService._vm and ViewmodelService._vm._weapon and ViewmodelService._vm._weapon.Name == "Knife" then
 			ViewmodelService:Equip("Shotgun")
 		else
 			ViewmodelService:Equip("Knife")
@@ -64,7 +64,7 @@ end
 
 local function reload(_actionName: string, inputState: Enum.UserInputState)
 	if inputState == Enum.UserInputState.Begin then
-		ViewmodelService._vm._weapon:Reload()
+		ViewmodelService:Reload()
 	end
 	return Enum.ContextActionResult.Sink
 end

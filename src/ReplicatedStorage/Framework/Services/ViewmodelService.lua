@@ -65,6 +65,18 @@ function singleton:PrimaryFire()
 	end
 end
 
+function singleton:Inspect()
+	if self._vm then
+		self._vm:Inspect()
+	end
+end
+
+function singleton:Reload()
+	if self._vm then
+		self._vm:Reload()
+	end
+end
+
 function singleton:Parry()
 	if not self._vm then return end
 	if not self._vm._weapon or self._vm._weapon.Name ~= "Knife" then
@@ -82,7 +94,6 @@ end
 function singleton:Initialize()
 	-- No auto-enable; PlayerStateController will enable/disable.
 	assert(RunService:IsClient())
-	local _ = ReplicatedStorage
 end
 
 return singleton

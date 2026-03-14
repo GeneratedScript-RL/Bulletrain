@@ -22,8 +22,8 @@ function PlayerStateService:GetState(player: Player): PlayerState
 end
 
 function PlayerStateService:handleCharacter(Character : Model)
-	for _, part in pairs(Character:GetDescendants()) do
-		if part:IsA("BasePart") or part:IsA("MeshPart") then
+	for _, part in ipairs(Character:GetDescendants()) do
+		if part:IsA("BasePart") then
 			if part.Name == "HumanoidRootPart" then continue end
 			
 			part.CollisionGroup = "Players"

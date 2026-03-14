@@ -9,6 +9,9 @@ local Knife = require(script.Parent.Parent.Weapons.Knife)
 export type Weapon = {
 	Name: string,
 	PrimaryFire: (self: Weapon) -> (),
+	Inspect: (self: Weapon) -> (),
+	Reload: (self: Weapon) -> (),
+	Parry: (self: Weapon) -> (),
 	Destroy: (self: Weapon) -> (),
 }
 
@@ -132,6 +135,10 @@ function Viewmodel:Equip(weaponName: string)
 
 	self:_ensureModelForWeapon(weaponName)
 
+	if not self._vmModel then
+		return
+	end
+
 	if weaponName == "Knife" then
 		self._weapon = Knife.new(self._player, self._camera, self._vmModel)
 	else
@@ -142,6 +149,18 @@ end
 function Viewmodel:PrimaryFire()
 	if self._weapon then
 		self._weapon:PrimaryFire()
+	end
+end
+
+function Viewmodel:Inspect()
+	if self._weapon then
+		self._weapon:Inspect()
+	end
+end
+
+function Viewmodel:Reload()
+	if self._weapon then
+		self._weapon:Reload()
 	end
 end
 

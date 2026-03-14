@@ -11,12 +11,12 @@ local ViewmodelAnimationReplicationComponent = {}
 ViewmodelAnimationReplicationComponent.__index = ViewmodelAnimationReplicationComponent
 
 function ViewmodelAnimationReplicationComponent:Initialize()
-	Network:SubscribeToPacket("AnimateViewmodel"):Connect(function(animName: string, priority: Enum.AnimationPriority?, fadeTime: number?)
+	Network:SubscribeToPacket("AnimateViewmodel"):Connect(function(animName: string, priority: Enum.AnimationPriority?, looped: boolean?)
 		local target = ViewmodelService:GetAnimationTarget()
 		if not target then
 			return
 		end
-		AnimationService:PlayAnimation(target, animName, priority or Enum.AnimationPriority.Action, fadeTime)
+		AnimationService:PlayAnimation(target, animName, priority or Enum.AnimationPriority.Action, looped)
 	end)
 end
 
