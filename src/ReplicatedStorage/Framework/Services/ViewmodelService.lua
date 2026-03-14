@@ -1,7 +1,6 @@
 --!strict
 
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
 local ViewmodelClass = require(script.Parent.Parent.Classes.Viewmodel.Viewmodel)

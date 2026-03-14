@@ -1,0 +1,5 @@
+std = "roblox"
+
+[lints]
+# _G is used intentionally for cross-script communication
+global_usage = "allow"
