@@ -16,10 +16,11 @@ type ParryState = {
 local playerStateService: any
 local scoreService: any
 local dataService: any
+local dailyTaskService: any
 
 local CombatService = framework.CreateService({
 	Name = "CombatService",
-	Dependencies = { "PlayerStateService", "ScoreService", "DataService" },
+	Dependencies = { "PlayerStateService", "ScoreService", "DataService", "DailyTaskService" },
 	Client = {
 		ShotgunFire = framework.CreateSignal(),
 		KnifeSwing = framework.CreateSignal(),
@@ -96,6 +97,9 @@ function CombatService:_onHumanoidDied(victimHumanoid: Humanoid)
 	local victimPlayer = getPlayerFromHumanoid(victimHumanoid)
 	if victimPlayer then
 		dataService:AddDeath(victimPlayer)
+		dailyTaskService:RecordEvent(victimPlayer, "Death", {
+			Victim = victimPlayer,
+		})
 	end
 
 	local killer = self._lastDamager[victimHumanoid]
@@ -104,6 +108,10 @@ function CombatService:_onHumanoidDied(victimHumanoid: Humanoid)
 		dataService:AddKill(killer)
 		dataService:AddXP(killer, Config.XPPerKill)
 		dataService:AddCredits(killer, Config.CreditsPerKill)
+		dailyTaskService:RecordEvent(killer, "Kill", {
+			Killer = killer,
+			Victim = victimPlayer,
+		})
 	end
 
 	local log = self._damageLog[victimHumanoid]
@@ -113,6 +121,11 @@ function CombatService:_onHumanoidDied(victimHumanoid: Humanoid)
 			if assister ~= killer and assister.Parent == Players and (now - timestamp) <= Config.AssistWindow then
 				dataService:AddAssist(assister)
 				dataService:AddXP(assister, Config.XPPerAssist)
+				dailyTaskService:RecordEvent(assister, "Assist", {
+					Assister = assister,
+					Killer = killer,
+					Victim = victimPlayer,
+				})
 			end
 		end
 	end
@@ -212,6 +225,7 @@ function CombatService:Init()
 	playerStateService = framework.GetService("PlayerStateService")
 	scoreService = framework.GetService("ScoreService")
 	dataService = framework.GetService("DataService")
+	dailyTaskService = framework.GetService("DailyTaskService")
 
 	self.Client.ShotgunFire:Connect(function(player: Player, origin: Vector3, direction: Vector3)
 		self:_fireShotgun(player, origin, direction)

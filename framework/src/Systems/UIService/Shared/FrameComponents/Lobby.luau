@@ -5,6 +5,7 @@ local Dependencies = require(root.Dependencies)
 local Types = require(root.Types)
 local framework: Types.frameworkClient = require(root) :: any
 
+local LobbyDailyTasks = require(script.Parent.LobbyDailyTasks)
 local MatchStates = require(script.Parent.Parent.Parent.Parent.MatchService.Shared.MatchStates)
 local ObjectComponents = require(script.Parent.Parent.ObjectComponents)
 local Trove = Dependencies.GetTrove()
@@ -12,6 +13,7 @@ local Trove = Dependencies.GetTrove()
 type LobbyComponent = {
 	Frame: GuiObject,
 	PlayButton: ImageButton?,
+	SettingsButton: GuiButton?,
 	CanJoin: boolean,
 	MatchRunning: boolean,
 	MatchState: string,
@@ -44,6 +46,25 @@ local function findPlayButton(lobbyFrame: GuiObject): ImageButton?
 	end
 
 	return lobbyFrame:FindFirstChildWhichIsA("ImageButton", true)
+end
+
+local function findSettingsButton(lobbyFrame: GuiObject): GuiButton?
+	local topTabs = lobbyFrame:FindFirstChild("TopTabs")
+	if not topTabs then
+		return nil
+	end
+
+	local settingsFrame = topTabs:FindFirstChild("Settings")
+	if not settingsFrame then
+		return nil
+	end
+
+	local directButton = settingsFrame:FindFirstChild("ImageButton")
+	if directButton and directButton:IsA("GuiButton") then
+		return directButton
+	end
+
+	return settingsFrame:FindFirstChildWhichIsA("GuiButton", true)
 end
 
 local function getLobbyStatusText(component: LobbyComponent): string
@@ -104,7 +125,7 @@ local function setupPlayButton(playButton: ImageButton, component: LobbyComponen
 	-- Apply hover tween effect to the play button
 	component._trove:Add(ObjectComponents.ButtonHoverTween.apply(
 		playButton,
-		playButton.Size + UDim2.new(0.1, 0, 0.1, 0), -- Hover size (10% larger)
+		playButton.Size + UDim2.fromScale(0.1, 0.1), -- Hover size (10% larger)
 		playButton.Size, -- Original size
 		0.2 -- Duration in seconds
 	))
@@ -125,11 +146,13 @@ end
 function Lobby.init(lobbyFrame: GuiObject): LobbyComponent
 	local matchService = framework.GetService("MatchService")
 	local playerStateService = framework.GetService("PlayerStateService")
+	local settingsController = framework.GetController("SettingsController")
 	local trove = Trove.new()
 
 	local component: LobbyComponent = {
 		Frame = lobbyFrame,
 		PlayButton = nil :: ImageButton?,
+		SettingsButton = nil :: GuiButton?,
 		CanJoin = false,
 		MatchRunning = false,
 		MatchState = MatchStates.Intermission,
@@ -143,6 +166,8 @@ function Lobby.init(lobbyFrame: GuiObject): LobbyComponent
 	}
 
 	local playButton = findPlayButton(lobbyFrame)
+	local settingsButton = findSettingsButton(lobbyFrame)
+	local dailyTasksFrame = lobbyFrame:FindFirstChild("DailyTasks")
 
 	if playButton then
 		component.PlayButton = playButton
@@ -150,6 +175,31 @@ function Lobby.init(lobbyFrame: GuiObject): LobbyComponent
 		setupPlayButton(playButton, component, matchService)
 	else
 		warn("[UIController] Play button not found at expected path: Lobby.Play.Button.ImageButton")
+	end
+
+	if settingsButton then
+		component.SettingsButton = settingsButton
+		trove:Add(ObjectComponents.ButtonHoverTween.apply(
+			settingsButton,
+			settingsButton.Size + UDim2.fromScale(0.05, 0.05),
+			settingsButton.Size,
+			0.15
+		))
+
+		trove:Connect(settingsButton.Activated, function()
+			settingsController:Toggle()
+		end)
+	else
+		warn("[UIController] Settings button not found at expected path: Lobby.TopTabs.Settings.ImageButton")
+	end
+
+	if dailyTasksFrame and dailyTasksFrame:IsA("GuiObject") then
+		local dailyTasksComponent = LobbyDailyTasks.bind(dailyTasksFrame)
+		if dailyTasksComponent then
+			trove:Add(dailyTasksComponent)
+		end
+	else
+		warn("[UIController] DailyTasks frame not found at expected path: Lobby.DailyTasks")
 	end
 
 	trove:Add(matchService.MatchRunning:Observe(function(isRunning: boolean)

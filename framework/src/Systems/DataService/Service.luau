@@ -8,10 +8,15 @@ local Types = require(root.Types)
 local framework: Types.frameworkServer = require(root) :: any
 
 local DefaultProfile = require(root.Shared.Database.DefaultProfile)
+local DailyTaskTypes = require(root.Shared.DailyTasks.Types)
 local Leveling = require(root.Shared.Database.Leveling)
+local SettingsDefaults = require(root.Shared.Settings.Defaults)
+local SettingsTypes = require(root.Shared.Settings.Types)
 local ProfileTypes = require(root.Shared.Database.TypeDef.Profile)
 
+type DailyTaskProfile = DailyTaskTypes.DailyTaskProfile
 type Profile = ProfileTypes.Profile
+type SettingsProfile = SettingsTypes.SettingsProfile
 
 local DATASTORE_NAME = "Bulletrain_PlayerData_v1"
 local AUTOSAVE_INTERVAL = 60
@@ -48,6 +53,38 @@ local function clampNumber(value: any, minimum: number, maximum: number): number
 	return math.clamp(value, minimum, maximum)
 end
 
+local function sanitizeDailyTasks(raw: any): DailyTaskProfile
+	local dailyTasks: DailyTaskProfile = {
+		DayKey = "",
+		Tasks = {},
+	}
+
+	if type(raw) ~= "table" then
+		return dailyTasks
+	end
+
+	if type(raw.DayKey) == "string" then
+		dailyTasks.DayKey = raw.DayKey
+	end
+
+	if type(raw.Tasks) == "table" then
+		for taskId, taskState in raw.Tasks do
+			if type(taskId) == "string" and type(taskState) == "table" then
+				dailyTasks.Tasks[taskId] = {
+					Progress = clampNumber(taskState.Progress, 0, 1e12),
+					RewardClaimed = taskState.RewardClaimed == true,
+				}
+			end
+		end
+	end
+
+	return dailyTasks
+end
+
+local function sanitizeSettings(raw: any): SettingsProfile
+	return SettingsDefaults.Sanitize(raw)
+end
+
 local function sanitizeProfile(raw: any): Profile
 	local profile: Profile = DefaultProfile.New()
 	if type(raw) ~= "table" then
@@ -80,6 +117,9 @@ local function sanitizeProfile(raw: any): Profile
 		profile.CurrentlyEquippedKnifeSkin = raw.CurrentlyEquippedKnifeSkin
 	end
 
+	profile.DailyTasks = sanitizeDailyTasks(raw.DailyTasks)
+	profile.Settings = sanitizeSettings(raw.Settings)
+
 	return profile
 end
 
@@ -96,6 +136,10 @@ end
 
 function DataService:_markDirty(player: Player)
 	self._dirty[player] = true
+end
+
+function DataService:MarkDirty(player: Player)
+	self:_markDirty(player)
 end
 
 function DataService:GetProfile(player: Player): Profile

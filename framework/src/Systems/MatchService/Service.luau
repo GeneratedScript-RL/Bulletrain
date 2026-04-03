@@ -14,6 +14,7 @@ local playerStateService: any
 local scoreService: any
 local mapService: any
 local spawnService: any
+local dailyTaskService: any
 
 type VoteData = {
 	map: string?,
@@ -22,7 +23,7 @@ type VoteData = {
 
 local MatchService = framework.CreateService({
 	Name = "MatchService",
-	Dependencies = { "PlayerStateService", "ScoreService", "MapService", "SpawnService" },
+	Dependencies = { "PlayerStateService", "ScoreService", "MapService", "SpawnService", "DailyTaskService" },
 	Client = {
 		RequestJoin = framework.CreateSignal(),
 		SubmitVote = framework.CreateSignal(),
@@ -46,6 +47,7 @@ MatchService._selectedMap = nil :: string?
 MatchService._selectedMode = nil :: string?
 MatchService._respawnConnections = {} :: { [Player]: RBXScriptConnection }
 MatchService._votes = {} :: { [Player]: VoteData }
+MatchService._matchParticipants = {} :: { [Player]: boolean }
 
 local function getLobbyCFrame(): CFrame
 	local spawnLocation = workspace:WaitForChild("SpawnLocation") :: BasePart
@@ -113,6 +115,7 @@ function MatchService:_tryJoinMatch(player: Player)
 	end
 
 	playerStateService:SetState(player, "Combat")
+	self._matchParticipants[player] = true
 	self:_hookRespawnsForPlayer(player)
 	spawnService:SpawnPlayer(player)
 end
@@ -207,6 +210,7 @@ function MatchService:_startMatch(mapName: string, modeName: string): boolean
 	self._matchRunning = true
 	self._selectedMap = mapName
 	self._selectedMode = modeName
+	table.clear(self._matchParticipants)
 
 	self.Client.CurrentState:Set(MatchStates.Match)
 	self.Client.MatchRunning:Set(true)
@@ -238,10 +242,26 @@ function MatchService:_startMatch(mapName: string, modeName: string): boolean
 	return true
 end
 
+function MatchService:_reportCompletedMatches(reason: string)
+	for player in self._matchParticipants do
+		if player.Parent == Players then
+			dailyTaskService:RecordEvent(player, "MatchCompleted", {
+				Reason = reason,
+				Map = self._selectedMap,
+				Mode = self._selectedMode,
+			})
+		end
+	end
+
+	table.clear(self._matchParticipants)
+end
+
 function MatchService:_endMatch(reason: string)
 	self._matchRunning = false
 	self.Client.MatchRunning:Set(false)
 	self.Client.CurrentState:Set(MatchStates.PostMatch)
+
+	self:_reportCompletedMatches(reason)
 
 	local topPlayer, topKills = scoreService:GetTopPlayer()
 
@@ -290,6 +310,7 @@ function MatchService:Init()
 	scoreService = framework.GetService("ScoreService")
 	mapService = framework.GetService("MapService")
 	spawnService = framework.GetService("SpawnService")
+	dailyTaskService = framework.GetService("DailyTaskService")
 
 	self.Client.RequestJoin:Connect(function(player: Player)
 		self:_tryJoinMatch(player)
@@ -312,6 +333,7 @@ function MatchService:Init()
 		end
 
 		self._votes[player] = nil
+		self._matchParticipants[player] = nil
 	end)
 end
 
@@ -325,6 +347,7 @@ function MatchService:Start()
 			self.Client.ModeOptions:Set({})
 			self:_clearSelections()
 			self:_resetVotes()
+			table.clear(self._matchParticipants)
 			self:_setAllStates("Menu")
 
 			for _, player in Players:GetPlayers() do

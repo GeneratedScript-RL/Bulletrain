@@ -46,12 +46,12 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui") :: PlayerGui
 
 local shotgunGameUI: ScreenGui?
-local controllerTrove: Types.Trove?
 local uiTrove: Types.Trove?
 local holderFrameTrove: Types.Trove?
 local playerStateService: any
 local currentPlayerState = "Menu"
 local frameRecords = {} :: { [string]: FrameRecord }
+local OPEN_OVERRIDE_ATTRIBUTE = "OpenOverride"
 
 local function findShotgunGameUI(): ScreenGui?
 	local ui = playerGui:FindFirstChild("ShotgunGameUI")
@@ -100,7 +100,13 @@ local function applyFrameVisibility(frameName: string)
 		return
 	end
 
-	frameRecord.Frame.Visible = shouldFrameBeVisible(frameRecord.Details, currentPlayerState)
+	local isVisible = shouldFrameBeVisible(frameRecord.Details, currentPlayerState)
+	local openOverride = frameRecord.Frame:GetAttribute(OPEN_OVERRIDE_ATTRIBUTE)
+	if type(openOverride) == "boolean" then
+		isVisible = isVisible and openOverride
+	end
+
+	frameRecord.Frame.Visible = isVisible
 	frameRecord.Frame:SetAttribute("VisibilityState", currentPlayerState)
 end
 
@@ -177,6 +183,15 @@ local function loadFrame(frame: Instance)
 		Details = frameDetails,
 	}
 
+	if holderFrameTrove then
+		holderFrameTrove:Connect(frame:GetAttributeChangedSignal(OPEN_OVERRIDE_ATTRIBUTE), function()
+			local currentRecord = frameRecords[frameName]
+			if currentRecord and currentRecord.Frame == frame then
+				applyFrameVisibility(frameName)
+			end
+		end)
+	end
+
 	applyFrameVisibility(frameName)
 end
 
@@ -242,7 +257,6 @@ function UIController:Start()
 	assert(RunService:IsClient(), "UIController must run on the client")
 
 	local trove = Trove.new()
-	controllerTrove = trove
 
 	local initialPlayerState = playerStateService.CurrentState:OnReady(5)
 	if type(initialPlayerState) == "string" then

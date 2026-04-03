@@ -1,8 +1,11 @@
 --!strict
 
+local DailyTaskTypes = require(script.Parent.Parent.DailyTasks.Types)
+local SettingsDefaults = require(script.Parent.Parent.Settings.Defaults)
 local ProfileTypes = require(script.Parent.TypeDef.Profile)
 
 type Profile = ProfileTypes.Profile
+type DailyTaskEntry = DailyTaskTypes.DailyTaskEntry
 
 local DefaultProfile = {}
 
@@ -19,6 +22,11 @@ DefaultProfile.Data = {
 	Level = 1,
 	CurrentlyEquippedShotgunSkin = "Default",
 	CurrentlyEquippedKnifeSkin = "Default",
+	DailyTasks = {
+		DayKey = "",
+		Tasks = {} :: { [string]: DailyTaskEntry },
+	},
+	Settings = SettingsDefaults.New(),
 } :: Profile
 
 local function deepCopy(value: any): any
