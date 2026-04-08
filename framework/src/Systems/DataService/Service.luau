@@ -9,6 +9,7 @@ local framework: Types.frameworkServer = require(root) :: any
 
 local DefaultProfile = require(root.Shared.Database.DefaultProfile)
 local DailyTaskTypes = require(root.Shared.DailyTasks.Types)
+local InventorySkins = require(root.Shared.Inventory.Skins)
 local Leveling = require(root.Shared.Database.Leveling)
 local SettingsDefaults = require(root.Shared.Settings.Defaults)
 local SettingsTypes = require(root.Shared.Settings.Types)
@@ -16,7 +17,9 @@ local ProfileTypes = require(root.Shared.Database.TypeDef.Profile)
 
 type DailyTaskProfile = DailyTaskTypes.DailyTaskProfile
 type Profile = ProfileTypes.Profile
+type OwnedCases = ProfileTypes.OwnedCases
 type SettingsProfile = SettingsTypes.SettingsProfile
+type SkinCategory = "Shotgun" | "Knife"
 
 local DATASTORE_NAME = "Bulletrain_PlayerData_v1"
 local AUTOSAVE_INTERVAL = 60
@@ -85,6 +88,50 @@ local function sanitizeSettings(raw: any): SettingsProfile
 	return SettingsDefaults.Sanitize(raw)
 end
 
+local function sanitizeOwnedCases(raw: any): OwnedCases
+	local ownedCases: OwnedCases = {}
+
+	if type(raw) ~= "table" then
+		return ownedCases
+	end
+
+	for caseId, amount in raw do
+		if type(caseId) == "string" then
+			local sanitizedAmount = math.floor(clampNumber(amount, 0, 1e6))
+			if sanitizedAmount > 0 then
+				ownedCases[caseId] = sanitizedAmount
+			end
+		end
+	end
+
+	return ownedCases
+end
+
+local function sanitizeOwnedSkins(raw: any, category: SkinCategory): { string }
+	local ownedSkins = {}
+	local seen = {}
+	local defaultSkin = InventorySkins.GetDefaultSkin(category)
+
+	if type(raw) == "table" then
+		for _, skinName in ipairs(raw :: { any }) do
+			if type(skinName) == "string" and not seen[skinName] and InventorySkins.IsValid(category, skinName) then
+				seen[skinName] = true
+				table.insert(ownedSkins, skinName)
+			end
+		end
+	end
+
+	if not seen[defaultSkin] then
+		table.insert(ownedSkins, 1, defaultSkin)
+	end
+
+	return ownedSkins
+end
+
+local function hasOwnedSkin(ownedSkins: { string }, skinName: string): boolean
+	return table.find(ownedSkins, skinName) ~= nil
+end
+
 local function sanitizeProfile(raw: any): Profile
 	local profile: Profile = DefaultProfile.New()
 	if type(raw) ~= "table" then
@@ -95,13 +142,9 @@ local function sanitizeProfile(raw: any): Profile
 	profile.XP = clampNumber(raw.XP, 0, 1e12)
 	profile.Level = clampNumber(raw.Level, 1, 1e6)
 
-	if type(raw.ShotgunSkins) == "table" then
-		profile.ShotgunSkins = raw.ShotgunSkins :: any
-	end
-
-	if type(raw.KnifeSkins) == "table" then
-		profile.KnifeSkins = raw.KnifeSkins :: any
-	end
+	profile.ShotgunSkins = sanitizeOwnedSkins(raw.ShotgunSkins, "Shotgun")
+	profile.KnifeSkins = sanitizeOwnedSkins(raw.KnifeSkins, "Knife")
+	profile.Cases = sanitizeOwnedCases(raw.Cases)
 
 	if type(raw.Career) == "table" then
 		profile.Career.Kills = clampNumber(raw.Career.Kills, 0, 1e12)
@@ -109,11 +152,15 @@ local function sanitizeProfile(raw: any): Profile
 		profile.Career.Assists = clampNumber(raw.Career.Assists, 0, 1e12)
 	end
 
-	if type(raw.CurrentlyEquippedShotgunSkin) == "string" then
+	if type(raw.CurrentlyEquippedShotgunSkin) == "string"
+		and hasOwnedSkin(profile.ShotgunSkins, raw.CurrentlyEquippedShotgunSkin)
+	then
 		profile.CurrentlyEquippedShotgunSkin = raw.CurrentlyEquippedShotgunSkin
 	end
 
-	if type(raw.CurrentlyEquippedKnifeSkin) == "string" then
+	if type(raw.CurrentlyEquippedKnifeSkin) == "string"
+		and hasOwnedSkin(profile.KnifeSkins, raw.CurrentlyEquippedKnifeSkin)
+	then
 		profile.CurrentlyEquippedKnifeSkin = raw.CurrentlyEquippedKnifeSkin
 	end
 
@@ -153,6 +200,29 @@ function DataService:GetProfile(player: Player): Profile
 	return profile
 end
 
+function DataService:IsProfileLoaded(player: Player): boolean
+	return self._profiles[player] ~= nil and not self._loading[player]
+end
+
+function DataService:WaitForProfile(player: Player, timeoutSeconds: number?): Profile
+	local deadline = if timeoutSeconds then os.clock() + timeoutSeconds else nil
+
+	while player.Parent == Players do
+		local profile = self._profiles[player]
+		if profile and not self._loading[player] then
+			return profile
+		end
+
+		if deadline and os.clock() >= deadline then
+			break
+		end
+
+		task.wait()
+	end
+
+	return self:GetProfile(player)
+end
+
 function DataService:SetEquippedShotgunSkin(player: Player, skinName: string)
 	local profile = self:GetProfile(player)
 	profile.CurrentlyEquippedShotgunSkin = skinName
@@ -172,6 +242,30 @@ function DataService:AddCredits(player: Player, amount: number)
 	profile.Credits = math.max(0, profile.Credits + amount)
 	self:_replicateAttributes(player, profile)
 	self:_markDirty(player)
+end
+
+function DataService:SpendCredits(player: Player, amount: number): boolean
+	if amount <= 0 then
+		return true
+	end
+
+	local profile = self:GetProfile(player)
+	if profile.Credits < amount then
+		return false
+	end
+
+	profile.Credits -= amount
+	self:_replicateAttributes(player, profile)
+	self:_markDirty(player)
+	return true
+end
+
+function DataService:GrantCase(player: Player, caseId: string, amount: number?): number
+	local resolvedAmount = math.max(math.floor(amount or 1), 1)
+	local profile = self:GetProfile(player)
+	profile.Cases[caseId] = (profile.Cases[caseId] or 0) + resolvedAmount
+	self:_markDirty(player)
+	return profile.Cases[caseId]
 end
 
 function DataService:AddXP(player: Player, amount: number)

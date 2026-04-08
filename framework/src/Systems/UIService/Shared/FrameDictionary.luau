@@ -29,6 +29,15 @@ local FrameDictionary: { [string]: FrameDetails } = {
 	Settings = {
 		LobbyUI = true,
 	},
+	Inventory = {
+		LobbyUI = true,
+	},
+	ShopHolder = {
+		LobbyUI = true,
+	},
+	Stats = {
+		LobbyUI = true,
+	},
 }
 
 return FrameDictionary

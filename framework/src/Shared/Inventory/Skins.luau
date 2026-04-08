@@ -1,0 +1,70 @@
+--!strict
+
+export type SkinCategory = "Shotgun" | "Knife"
+
+export type SkinDefinition = {
+	Name: string,
+	Icon: string,
+}
+
+type SkinDefinitionList = { SkinDefinition }
+
+local CATEGORY_DEFINITIONS: { [SkinCategory]: SkinDefinitionList } = {
+	Shotgun = {
+		{
+			Name = "Default",
+			Icon = "",
+		},
+	},
+	Knife = {
+		{
+			Name = "Default",
+			Icon = "",
+		},
+	},
+}
+
+local InventorySkins = {
+	Categories = {
+		Shotgun = "Shotgun" :: SkinCategory,
+		Knife = "Knife" :: SkinCategory,
+	},
+}
+
+local function copyDefinitions(definitions: SkinDefinitionList): SkinDefinitionList
+	local out = table.create(#definitions)
+
+	for index, definition in ipairs(definitions) do
+		out[index] = {
+			Name = definition.Name,
+			Icon = definition.Icon,
+		}
+	end
+
+	return out
+end
+
+function InventorySkins.GetDefinitions(category: SkinCategory): SkinDefinitionList
+	return copyDefinitions(CATEGORY_DEFINITIONS[category])
+end
+
+function InventorySkins.GetDefinition(category: SkinCategory, skinName: string): SkinDefinition?
+	for _, definition in ipairs(CATEGORY_DEFINITIONS[category]) do
+		if definition.Name == skinName then
+			return definition
+		end
+	end
+
+	return nil
+end
+
+function InventorySkins.IsValid(category: SkinCategory, skinName: string): boolean
+	return InventorySkins.GetDefinition(category, skinName) ~= nil
+end
+
+function InventorySkins.GetDefaultSkin(category: SkinCategory): string
+	local definitions = CATEGORY_DEFINITIONS[category]
+	return definitions[1].Name
+end
+
+return InventorySkins

@@ -47,6 +47,23 @@ function Viewmodel.new(localPlayer: Player, camera: Camera, animationController:
 	self._vmModel = nil :: Model?
 	self._weapon = nil :: Weapon?
 	self._connection = nil :: RBXScriptConnection?
+	self._equippedKnifeSkinConnection = nil :: RBXScriptConnection?
+	self._equippedShotgunSkinConnection = nil :: RBXScriptConnection?
+
+	self._equippedKnifeSkinConnection = localPlayer:GetAttributeChangedSignal("EquippedKnifeSkin"):Connect(function()
+		local weapon = self._weapon
+		if weapon and weapon.Name == "Knife" then
+			self:Equip("Knife")
+		end
+	end)
+
+	self._equippedShotgunSkinConnection = localPlayer:GetAttributeChangedSignal("EquippedShotgunSkin"):Connect(function()
+		local weapon = self._weapon
+		if weapon and weapon.Name == "Shotgun" then
+			self:Equip("Shotgun")
+		end
+	end)
+
 	return self
 end
 
@@ -87,7 +104,14 @@ function Viewmodel:_ensureModelForWeapon(weaponName: string)
 	end
 
 	if not template then
-		for _, child in weaponFolder:GetChildren() do
+		local defaultTemplate = weaponFolder:FindFirstChild("Default")
+		if defaultTemplate and defaultTemplate:IsA("Model") then
+			template = defaultTemplate
+		end
+	end
+
+	if not template then
+		for _, child in ipairs(weaponFolder:GetChildren()) do
 			if child:IsA("Model") then
 				template = child
 				break
@@ -188,6 +212,16 @@ function Viewmodel:Destroy()
 	if self._connection then
 		self._connection:Disconnect()
 		self._connection = nil
+	end
+
+	if self._equippedKnifeSkinConnection then
+		self._equippedKnifeSkinConnection:Disconnect()
+		self._equippedKnifeSkinConnection = nil
+	end
+
+	if self._equippedShotgunSkinConnection then
+		self._equippedShotgunSkinConnection:Disconnect()
+		self._equippedShotgunSkinConnection = nil
 	end
 
 	if self._weapon then

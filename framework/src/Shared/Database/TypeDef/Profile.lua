@@ -9,6 +9,10 @@ export type CareerStats = {
 	Assists: number,
 }
 
+export type OwnedCases = {
+	[string]: number,
+}
+
 export type DailyTaskEntry = DailyTaskTypes.DailyTaskEntry
 export type DailyTaskProfile = DailyTaskTypes.DailyTaskProfile
 export type SettingsProfile = SettingTypes.SettingsProfile
@@ -17,6 +21,7 @@ export type Profile = {
 	Credits: number,
 	ShotgunSkins: {string},
 	KnifeSkins: {string},
+	Cases: OwnedCases,
 	Career: CareerStats,
 	XP: number,
 	Level: number,

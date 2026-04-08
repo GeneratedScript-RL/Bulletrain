@@ -13,6 +13,7 @@ DefaultProfile.Data = {
 	Credits = 0,
 	ShotgunSkins = { "Default" },
 	KnifeSkins = { "Default" },
+	Cases = {} :: { [string]: number },
 	Career = {
 		Kills = 0,
 		Deaths = 0,
