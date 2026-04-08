@@ -1,0 +1,7 @@
+{
+  "name": "framework",
+  "tree": {
+    "$className": "ModuleScript",
+    "$path": "src"
+  }
+}
