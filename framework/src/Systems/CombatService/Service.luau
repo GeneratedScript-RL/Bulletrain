@@ -26,11 +26,13 @@ local CombatService = framework.CreateService({
 		KnifeSwing = framework.CreateSignal(),
 		ParryStart = framework.CreateSignal(),
 		ParrySuccess = framework.CreateSignal(),
+		KillFeedEntryAdded = framework.CreateSignal(),
 		ReplicateShotgunBullet = framework.CreateUnreliableSignal(),
 	},
 })
 
 CombatService._lastDamager = {} :: { [Humanoid]: Player }
+CombatService._lastDamageWeapon = {} :: { [Humanoid]: string }
 CombatService._damageLog = {} :: { [Humanoid]: { [Player]: number } }
 CombatService._parryingPlayers = {} :: { [Player]: ParryState }
 
@@ -61,6 +63,10 @@ local function getPlayerFromHumanoid(humanoid: Humanoid): Player?
 	return nil
 end
 
+local function getPlayerFeedName(player: Player): string
+	return player.Name
+end
+
 local function makeParamsForShooter(shooterCharacter: Model): RaycastParams
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -77,12 +83,13 @@ local function applySpread(direction: Vector3, spreadDegrees: number): Vector3
 	return (base * CFrame.Angles(pitch, yaw, 0)).LookVector
 end
 
-function CombatService:_tagDamage(victimHumanoid: Humanoid, attacker: Player)
+function CombatService:_tagDamage(victimHumanoid: Humanoid, attacker: Player, weaponName: string)
 	self._lastDamager[victimHumanoid] = attacker
+	self._lastDamageWeapon[victimHumanoid] = weaponName
 end
 
-function CombatService:_recordDamage(victimHumanoid: Humanoid, attacker: Player)
-	self:_tagDamage(victimHumanoid, attacker)
+function CombatService:_recordDamage(victimHumanoid: Humanoid, attacker: Player, weaponName: string)
+	self:_tagDamage(victimHumanoid, attacker, weaponName)
 
 	local log = self._damageLog[victimHumanoid]
 	if not log then
@@ -112,6 +119,16 @@ function CombatService:_onHumanoidDied(victimHumanoid: Humanoid)
 			Killer = killer,
 			Victim = victimPlayer,
 		})
+
+		if victimPlayer then
+			self.Client.KillFeedEntryAdded:FireAll({
+				killerUserId = killer.UserId,
+				killerName = getPlayerFeedName(killer),
+				victimUserId = victimPlayer.UserId,
+				victimName = getPlayerFeedName(victimPlayer),
+				weaponName = self._lastDamageWeapon[victimHumanoid] or "Shotgun",
+			})
+		end
 	end
 
 	local log = self._damageLog[victimHumanoid]
@@ -131,6 +148,7 @@ function CombatService:_onHumanoidDied(victimHumanoid: Humanoid)
 	end
 
 	self._lastDamager[victimHumanoid] = nil
+	self._lastDamageWeapon[victimHumanoid] = nil
 	self._damageLog[victimHumanoid] = nil
 end
 
@@ -174,7 +192,7 @@ function CombatService:_fireShotgun(player: Player, origin: Vector3, direction: 
 						if redirectResult then
 							local redirectHumanoid = getHumanoidFromHit(redirectResult.Instance)
 							if redirectHumanoid and redirectHumanoid.Health > 0 then
-								self:_recordDamage(redirectHumanoid, victimPlayer)
+								self:_recordDamage(redirectHumanoid, victimPlayer, "Knife")
 								redirectHumanoid:TakeDamage(Config.Shotgun.PelletDamage)
 							end
 						end
@@ -185,7 +203,7 @@ function CombatService:_fireShotgun(player: Player, origin: Vector3, direction: 
 						self.Client.ParrySuccess:Fire(victimPlayer)
 					end
 				else
-					self:_recordDamage(humanoid, player)
+					self:_recordDamage(humanoid, player, "Shotgun")
 					humanoid:TakeDamage(Config.Shotgun.PelletDamage)
 				end
 			end
@@ -215,7 +233,7 @@ function CombatService:_knifeSwing(player: Player)
 	if result then
 		local humanoid = getHumanoidFromHit(result.Instance)
 		if humanoid and humanoid.Health > 0 then
-			self:_recordDamage(humanoid, player)
+			self:_recordDamage(humanoid, player, "Knife")
 			humanoid:TakeDamage(Config.Knife.Damage)
 		end
 	end

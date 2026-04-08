@@ -26,6 +26,9 @@ local FrameDictionary: { [string]: FrameDetails } = {
 		-- Visible while the player is outside combat.
 		LobbyUI = true,
 	},
+	GamePlay = {
+		CombatUI = true,
+	},
 	Settings = {
 		LobbyUI = true,
 	},
