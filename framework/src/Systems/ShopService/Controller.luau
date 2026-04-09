@@ -14,7 +14,6 @@ local Trove = Dependencies.GetTrove()
 type Connection = Types.Connection
 type CoinOffer = CoinProducts.CoinOffer
 type PackOffer = Packs.PackOffer
-type CaseReward = SkinCases.CaseReward
 type OpeningStatus = "Idle" | "Spinning" | "Opened"
 type ShopTab = "Packs" | "Cases" | "Coins"
 type SkinCaseDefinition = SkinCases.SkinCaseDefinition

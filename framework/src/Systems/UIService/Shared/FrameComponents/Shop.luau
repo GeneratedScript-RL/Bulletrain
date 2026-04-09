@@ -388,7 +388,7 @@ local function renderCaseRewards(component: ShopComponent, caseDefinition: SkinC
 		local iconLabel = findImageLabel(rewardCard, "Item")
 
 		if nameLabel then
-			nameLabel.Text = ("%s [%s • %s]"):format(reward.Name, reward.Rarity, formatChance(reward.Chance))
+			nameLabel.Text = ("%s [%s | %s]"):format(reward.Name, reward.Rarity, formatChance(reward.Chance))
 		end
 
 		setOptionalImage(iconLabel, reward.Icon)

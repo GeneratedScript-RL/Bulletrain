@@ -38,6 +38,12 @@ local FrameDictionary: { [string]: FrameDetails } = {
 			Combat = true,
 		},
 	},
+	Opened = {
+		VisibleStates = {
+			Menu = true,
+			Combat = true,
+		},
+	},
 	Settings = {
 		LobbyUI = true,
 	},
@@ -46,6 +52,12 @@ local FrameDictionary: { [string]: FrameDetails } = {
 	},
 	ShopHolder = {
 		LobbyUI = true,
+	},
+	Spinning = {
+		VisibleStates = {
+			Menu = true,
+			Combat = true,
+		},
 	},
 	Stats = {
 		LobbyUI = true,

@@ -7,13 +7,11 @@ local root = script.Parent.Parent.Parent
 local Types = require(root.Types)
 local framework: Types.frameworkServer = require(root) :: any
 
-local InventorySkins = require(root.Shared.Inventory.Skins)
 local CoinProducts = require(root.Shared.Shop.CoinProducts)
 local Packs = require(root.Shared.Shop.Packs)
 local SkinCases = require(root.Shared.Shop.SkinCases)
 
 type CaseReward = SkinCases.CaseReward
-type CaseRarity = SkinCases.CaseRarity
 type CoinOffer = CoinProducts.CoinOffer
 type PackOffer = Packs.PackOffer
 type ReceiptInfo = {
@@ -21,7 +19,6 @@ type ReceiptInfo = {
 	ProductId: number,
 }
 type SkinCaseDefinition = SkinCases.SkinCaseDefinition
-type SkinCategory = InventorySkins.SkinCategory
 
 local dataService: any
 local inventoryService: any
