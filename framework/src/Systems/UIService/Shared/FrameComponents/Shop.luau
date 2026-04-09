@@ -285,6 +285,15 @@ local function formatCasePrice(currency: CurrencyType, price: number): string
 	return formatRobuxPrice(price)
 end
 
+local function formatChance(chance: number): string
+	local roundedChance = math.round(chance * 100) / 100
+	if math.abs(roundedChance - math.floor(roundedChance)) < 0.001 then
+		return ("%d%%"):format(math.floor(roundedChance))
+	end
+
+	return ("%.2f%%"):format(roundedChance)
+end
+
 local function getCaseDefinitionById(shopController: any, caseId: string?): SkinCaseDefinition?
 	if type(caseId) ~= "string" or caseId == "" then
 		return nil
@@ -299,10 +308,12 @@ local function getCaseDefinitionById(shopController: any, caseId: string?): Skin
 	return nil
 end
 
-local function attemptPurchase(success: boolean, errorMessage: string?)
+local function attemptPurchase(success: boolean, errorMessage: string?): boolean
 	if not success and errorMessage then
 		warn(("[ShopUI] %s"):format(errorMessage))
 	end
+
+	return success
 end
 
 local function clearCaseDetail(component: ShopComponent)
@@ -377,7 +388,7 @@ local function renderCaseRewards(component: ShopComponent, caseDefinition: SkinC
 		local iconLabel = findImageLabel(rewardCard, "Item")
 
 		if nameLabel then
-			nameLabel.Text = ("%s [%s]"):format(reward.Name, reward.Rarity)
+			nameLabel.Text = ("%s [%s • %s]"):format(reward.Name, reward.Rarity, formatChance(reward.Chance))
 		end
 
 		setOptionalImage(iconLabel, reward.Icon)
@@ -399,51 +410,61 @@ local function renderCaseDetail(component: ShopComponent, shopController: any)
 	component._detailTrove = detailTrove
 
 	local leftSide = caseView:FindFirstChild("LeftSide")
-	local robuxBuyFrame = if leftSide then (leftSide:FindFirstChild("BuyButton") :: GuiObject?) else nil
+	local purchaseButtonFrame = if leftSide then (leftSide:FindFirstChild("BuyButton") :: GuiObject?) else nil
 	local caseCard = if leftSide then (leftSide:FindFirstChild("Case") :: GuiObject?) else nil
-	local coinBuyFrame = if caseCard then (caseCard:FindFirstChild("BuyButton") :: GuiObject?) else nil
+	local openButtonFrame = if caseCard then (caseCard:FindFirstChild("BuyButton") :: GuiObject?) else nil
 
 	local caseNameLabel = findTextLabel(caseCard, "CaseName")
 	local caseIcon = findImageLabel(caseCard, "CaseIcon")
-	local coinAmountLabel = if coinBuyFrame then findTextLabel(coinBuyFrame, "Amount") else nil
-	local robuxAmountLabel = if robuxBuyFrame then findTextLabel(robuxBuyFrame, "Amount") else nil
-	local coinButton = if coinBuyFrame then ensureButtonHitbox(coinBuyFrame) else nil
-	local robuxButton = if robuxBuyFrame then findButton(robuxBuyFrame, "ButtonHitbox") else nil
+	local openAmountLabel = if openButtonFrame then findTextLabel(openButtonFrame, "Amount") else nil
+	local purchaseAmountLabel = if purchaseButtonFrame then findTextLabel(purchaseButtonFrame, "Amount") else nil
+	local openButton = if openButtonFrame then ensureButtonHitbox(openButtonFrame) else nil
+	local purchaseButton = if purchaseButtonFrame then findButton(purchaseButtonFrame, "ButtonHitbox") else nil
+	local ownedCaseCount = shopController:GetOwnedCaseCount(caseDefinition.Id)
+	local primaryCurrency = caseDefinition.PrimaryCurrency
+	local primaryPrice = if primaryCurrency == "Coins" then caseDefinition.CoinPrice else caseDefinition.RobuxPrice
 	local raritiesFrame = if caseCard then caseCard:FindFirstChild("Rarities") else nil
 
 	if caseNameLabel then
-		caseNameLabel.Text = caseDefinition.Name
+		caseNameLabel.Text = if ownedCaseCount > 0
+			then ("%s x%d"):format(caseDefinition.Name, ownedCaseCount)
+			else caseDefinition.Name
 	end
 
 	setOptionalImage(caseIcon, caseDefinition.Icon)
 
-	if coinBuyFrame and coinAmountLabel then
-		local hasCoinPrice = type(caseDefinition.CoinPrice) == "number"
-		coinBuyFrame.Visible = hasCoinPrice
-		if hasCoinPrice then
-			coinAmountLabel.Text = formatCoinPrice(caseDefinition.CoinPrice :: number)
+	if openButtonFrame and openAmountLabel then
+		local canOpen = ownedCaseCount > 0
+		openButtonFrame.Visible = canOpen
+		if canOpen then
+			openAmountLabel.Text = ("OPEN x%d"):format(ownedCaseCount)
 		end
 	end
 
-	if robuxBuyFrame and robuxAmountLabel then
-		local hasRobuxPrice = type(caseDefinition.RobuxPrice) == "number"
-		robuxBuyFrame.Visible = hasRobuxPrice
-		if hasRobuxPrice then
-			robuxAmountLabel.Text = formatRobuxPrice(caseDefinition.RobuxPrice :: number)
+	if purchaseButtonFrame and purchaseAmountLabel then
+		local hasPurchasePrice = type(primaryPrice) == "number"
+		purchaseButtonFrame.Visible = hasPurchasePrice
+		if hasPurchasePrice then
+			purchaseAmountLabel.Text = formatCasePrice(primaryCurrency, primaryPrice :: number)
 		end
 	end
 
-	if coinBuyFrame and coinButton then
-		applyHoverTween(detailTrove, coinBuyFrame, 0.03, 0.1)
-		detailTrove:Connect(coinButton.Activated, function()
-			attemptPurchase(shopController:PurchaseCase(caseDefinition.Id, "Coins"))
+	if openButtonFrame and openButton and ownedCaseCount > 0 then
+		applyHoverTween(detailTrove, openButtonFrame, 0.03, 0.1)
+		detailTrove:Connect(openButton.Activated, function()
+			local success, errorMessage = shopController:OpenCase(caseDefinition.Id)
+			if not success and errorMessage then
+				warn(("[ShopUI] %s"):format(errorMessage))
+			end
 		end)
 	end
 
-	if robuxBuyFrame and robuxButton then
-		applyHoverTween(detailTrove, robuxBuyFrame, 0.03, 0.1)
-		detailTrove:Connect(robuxButton.Activated, function()
-			attemptPurchase(shopController:PurchaseCase(caseDefinition.Id, "Robux"))
+	if purchaseButtonFrame and purchaseButton and primaryPrice ~= nil then
+		applyHoverTween(detailTrove, purchaseButtonFrame, 0.03, 0.1)
+		detailTrove:Connect(purchaseButton.Activated, function()
+			if attemptPurchase(shopController:PurchaseCase(caseDefinition.Id, primaryCurrency)) then
+				renderCaseDetail(component, shopController)
+			end
 		end)
 	end
 
@@ -602,9 +623,12 @@ local function renderCaseGrid(component: ShopComponent, shopController: any)
 		local caseIcon = findImageLabel(card, "CaseIcon")
 		local buyAmountLabel = findTextLabel(buyButtonFrame, "Amount")
 		local price = getQuickCasePrice(caseDefinition)
+		local ownedCaseCount = shopController:GetOwnedCaseCount(caseDefinition.Id)
 
 		if caseNameLabel then
-			caseNameLabel.Text = caseDefinition.Name
+			caseNameLabel.Text = if ownedCaseCount > 0
+				then ("%s x%d"):format(caseDefinition.Name, ownedCaseCount)
+				else caseDefinition.Name
 		end
 
 		setOptionalImage(caseIcon, caseDefinition.Icon)
@@ -629,7 +653,11 @@ local function renderCaseGrid(component: ShopComponent, shopController: any)
 		if buyButtonFrame and buyButton then
 			applyHoverTween(component._trove, buyButtonFrame :: GuiObject, 0.03, 0.1)
 			component._trove:Connect(buyButton.Activated, function()
-				attemptPurchase(shopController:PurchaseCase(caseDefinition.Id, currency))
+				if attemptPurchase(shopController:PurchaseCase(caseDefinition.Id, currency)) then
+					component.SelectedCaseId = caseDefinition.Id
+					renderCaseDetail(component, shopController)
+					refreshVisiblePanels(component)
+				end
 			end)
 		end
 	end
@@ -791,6 +819,10 @@ function Shop.init(shopFrame: GuiObject): ShopComponent
 
 	trove:Add(shopController:ObserveSelectedTab(function(tabName: ShopTab)
 		setSelectedTab(component, shopController, tabName)
+	end))
+
+	trove:Add(shopController:ObserveOwnedCases(function(_ownedCases: { [string]: number })
+		renderCaseDetail(component, shopController)
 	end))
 
 	setSelectedTab(component, shopController, shopController:GetSelectedTab())

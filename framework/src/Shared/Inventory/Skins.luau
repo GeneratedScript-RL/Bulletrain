@@ -15,10 +15,82 @@ local CATEGORY_DEFINITIONS: { [SkinCategory]: SkinDefinitionList } = {
 			Name = "Default",
 			Icon = "",
 		},
+		{
+			Name = "Rustbite",
+			Icon = "",
+		},
+		{
+			Name = "Mossline",
+			Icon = "",
+		},
+		{
+			Name = "Frostline",
+			Icon = "",
+		},
+		{
+			Name = "Emberfall",
+			Icon = "",
+		},
+		{
+			Name = "Urban Fade",
+			Icon = "",
+		},
+		{
+			Name = "Signal Red",
+			Icon = "",
+		},
+		{
+			Name = "Night Ops",
+			Icon = "",
+		},
+		{
+			Name = "Carbon Pulse",
+			Icon = "",
+		},
+		{
+			Name = "Hyperwave",
+			Icon = "",
+		},
+		{
+			Name = "Solar Bloom",
+			Icon = "",
+		},
 	},
 	Knife = {
 		{
 			Name = "Default",
+			Icon = "",
+		},
+		{
+			Name = "Slate Fang",
+			Icon = "",
+		},
+		{
+			Name = "Gilded Fang",
+			Icon = "",
+		},
+		{
+			Name = "Olive Burst",
+			Icon = "",
+		},
+		{
+			Name = "Crimson Web",
+			Icon = "",
+		},
+		{
+			Name = "Aurora Edge",
+			Icon = "",
+		},
+		{
+			Name = "Frostbite",
+			Icon = "",
+		},
+		{
+			Name = "Obsidian Fang",
+			Icon = "",
+		},
+		{
+			Name = "Neon Crown",
 			Icon = "",
 		},
 	},

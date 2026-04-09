@@ -271,6 +271,26 @@ function DataService:GrantCase(player: Player, caseId: string, amount: number?):
 	return profile.Cases[caseId]
 end
 
+function DataService:ConsumeCase(player: Player, caseId: string, amount: number?): (boolean, number)
+	local resolvedAmount = math.max(math.floor(amount or 1), 1)
+	local profile = self:GetProfile(player)
+	local currentAmount = profile.Cases[caseId] or 0
+	if currentAmount < resolvedAmount then
+		return false, currentAmount
+	end
+
+	local remainingAmount = currentAmount - resolvedAmount
+	if remainingAmount > 0 then
+		profile.Cases[caseId] = remainingAmount
+	else
+		profile.Cases[caseId] = nil
+		remainingAmount = 0
+	end
+
+	self:_markDirty(player)
+	return true, remainingAmount
+end
+
 function DataService:AddXP(player: Player, amount: number)
 	local profile = self:GetProfile(player)
 	local previousLevel = profile.Level
