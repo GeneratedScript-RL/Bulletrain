@@ -12,6 +12,7 @@ local Trove = Dependencies.GetTrove()
 local MAX_TOP_PLAYERS = 5
 local MAX_KILLFEED_ENTRIES = 4
 local KILLFEED_ENTRY_LIFETIME = 6
+local ELIMINATION_BAR_LIFETIME = 2.5
 
 type WeaponSlotState = {
 	Frame: GuiObject,
@@ -40,6 +41,9 @@ type GamePlayComponent = {
 	HealthAmountLabel: TextLabel?,
 	HealthBar: GuiObject?,
 	HealthBarFullSize: UDim2,
+	EliminatedBar: GuiObject?,
+	EliminatedNameLabel: TextLabel?,
+	NextEliminationBarId: number,
 	KillFeedFrame: GuiObject?,
 	KillFeedTemplate: GuiObject?,
 	KillFeedEntries: { KillFeedEntry },
@@ -356,6 +360,39 @@ local function renderKillFeed(component: GamePlayComponent)
 	end
 end
 
+local function setEliminationBarVisible(component: GamePlayComponent, isVisible: boolean)
+	local eliminatedBar = component.EliminatedBar
+	if not eliminatedBar then
+		return
+	end
+
+	eliminatedBar.Visible = isVisible
+end
+
+local function showEliminationBar(component: GamePlayComponent, victimName: string)
+	local eliminatedBar = component.EliminatedBar
+	if not eliminatedBar then
+		return
+	end
+
+	component.NextEliminationBarId += 1
+	local eliminationBarId = component.NextEliminationBarId
+
+	if component.EliminatedNameLabel then
+		component.EliminatedNameLabel.Text = victimName
+	end
+
+	eliminatedBar.Visible = true
+
+	task.delay(ELIMINATION_BAR_LIFETIME, function()
+		if component._destroyed or component.NextEliminationBarId ~= eliminationBarId then
+			return
+		end
+
+		setEliminationBarVisible(component, false)
+	end)
+end
+
 local function removeKillFeedEntry(component: GamePlayComponent, entryId: number)
 	for index, killFeedEntry in ipairs(component.KillFeedEntries) do
 		if killFeedEntry.Id == entryId then
@@ -559,6 +596,8 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 	local healthFrame = findGuiObject(gamePlayFrame, "Health")
 	local healthBarHolder = findGuiObject(healthFrame, "BarHolder")
 	local healthBar = findGuiObject(healthBarHolder, "Bar")
+	local middleFrame = findGuiObject(gamePlayFrame, "Middle")
+	local eliminatedBar = findGuiObject(middleFrame, "EliminatedBar")
 
 	local killFeedFrame = findGuiObject(gamePlayFrame, "KillFeed")
 	local killFeedTemplateSource = findChildWithPrefix(killFeedFrame, "DeathLog")
@@ -578,6 +617,9 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 		HealthAmountLabel = findTextLabel(healthBarHolder, "Amount"),
 		HealthBar = healthBar,
 		HealthBarFullSize = if healthBar then healthBar.Size else UDim2.fromScale(1, 1),
+		EliminatedBar = eliminatedBar,
+		EliminatedNameLabel = findTextLabel(eliminatedBar, "Amount"),
+		NextEliminationBarId = 0,
 		KillFeedFrame = killFeedFrame,
 		KillFeedTemplate = killFeedTemplate,
 		KillFeedEntries = {},
@@ -604,6 +646,11 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 
 	if component.KillFeedTemplate then
 		component.KillFeedTemplate.Visible = true
+	end
+
+	setEliminationBarVisible(component, false)
+	if component.EliminatedNameLabel then
+		component.EliminatedNameLabel.Text = ""
 	end
 
 	if component.PlayerListTemplate then
@@ -665,10 +712,15 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 			return
 		end
 
+		local killerUserId = tonumber(payload.killerUserId)
 		local killerName = tostring(payload.killerName or "Unknown")
 		local victimName = tostring(payload.victimName or "Unknown")
 		local weaponName = tostring(payload.weaponName or "Shotgun")
 		pushKillFeedEntry(component, killerName, victimName, weaponName)
+
+		if killerUserId == localPlayer.UserId then
+			showEliminationBar(component, victimName)
+		end
 	end))
 
 	if viewmodelController.WeaponChanged then
