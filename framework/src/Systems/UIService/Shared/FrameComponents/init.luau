@@ -3,6 +3,8 @@
 local FrameComponents = {
 	Lobby = require(script.Lobby),
 	GamePlay = require(script.GamePlay),
+	MapSelection = require(script.MapSelection),
+	Notifications = require(script.Notifications),
 	Settings = require(script.Settings),
 	Inventory = require(script.Inventory),
 	ShopHolder = require(script.Shop),

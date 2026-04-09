@@ -29,6 +29,7 @@ local DailyTaskService = framework.CreateService({
 	Dependencies = { "DataService" },
 	Client = {
 		Snapshot = framework.CreateProperty(EMPTY_SNAPSHOT),
+		TaskCompleted = framework.CreateSignal(),
 	},
 })
 
@@ -155,7 +156,11 @@ function DailyTaskService:_reconcileDailyState(dailyTaskProfile: DailyTaskProfil
 	return changed
 end
 
-function DailyTaskService:_finalizeCompletedTasks(player: Player, dailyTaskProfile: DailyTaskProfile): boolean
+function DailyTaskService:_finalizeCompletedTasks(
+	player: Player,
+	dailyTaskProfile: DailyTaskProfile,
+	notifyPlayer: boolean?
+): boolean
 	local changed = false
 
 	for taskId, taskEntry in dailyTaskProfile.Tasks do
@@ -173,6 +178,18 @@ function DailyTaskService:_finalizeCompletedTasks(player: Player, dailyTaskProfi
 		if taskEntry.Progress >= taskDefinition.Target and not taskEntry.RewardClaimed then
 			taskEntry.RewardClaimed = true
 			dataService:AddCredits(player, taskDefinition.RewardCredits)
+
+			if notifyPlayer then
+				self.Client.TaskCompleted:Fire(player, {
+					taskId = taskDefinition.Id,
+					title = taskDefinition.Title,
+					rewardCredits = taskDefinition.RewardCredits,
+					progress = clampedProgress,
+					target = taskDefinition.Target,
+					dayKey = dailyTaskProfile.DayKey,
+				})
+			end
+
 			changed = true
 		end
 	end
@@ -185,7 +202,7 @@ function DailyTaskService:_getDailyTaskProfile(player: Player): (DailyTaskProfil
 	local dailyTaskProfile = profile.DailyTasks
 	local changed = self:_reconcileDailyState(dailyTaskProfile, getCurrentDayKey())
 
-	if self:_finalizeCompletedTasks(player, dailyTaskProfile) then
+	if self:_finalizeCompletedTasks(player, dailyTaskProfile, false) then
 		changed = true
 	end
 
@@ -273,7 +290,7 @@ function DailyTaskService:RecordEvent(player: Player, eventName: string, payload
 		end
 	end
 
-	if self:_finalizeCompletedTasks(player, dailyTaskProfile) then
+	if self:_finalizeCompletedTasks(player, dailyTaskProfile, true) then
 		changed = true
 	end
 

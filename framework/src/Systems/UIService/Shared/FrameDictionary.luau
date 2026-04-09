@@ -29,6 +29,15 @@ local FrameDictionary: { [string]: FrameDetails } = {
 	GamePlay = {
 		CombatUI = true,
 	},
+	MapSelection = {
+		LobbyUI = true,
+	},
+	Notifications = {
+		VisibleStates = {
+			Menu = true,
+			Combat = true,
+		},
+	},
 	Settings = {
 		LobbyUI = true,
 	},

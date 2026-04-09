@@ -37,6 +37,9 @@ local ATTRIBUTE = {
 
 local DataService = framework.CreateService({
 	Name = "DataService",
+	Client = {
+		LevelUp = framework.CreateSignal(),
+	},
 })
 
 DataService._store = nil :: GlobalDataStore?
@@ -270,11 +273,21 @@ end
 
 function DataService:AddXP(player: Player, amount: number)
 	local profile = self:GetProfile(player)
+	local previousLevel = profile.Level
 	local newLevel, newXP = Leveling.ApplyXP(profile.Level, profile.XP, amount)
 	profile.Level = newLevel
 	profile.XP = newXP
 	self:_replicateAttributes(player, profile)
 	self:_markDirty(player)
+
+	if newLevel > previousLevel then
+		self.Client.LevelUp:Fire(player, {
+			previousLevel = previousLevel,
+			level = newLevel,
+			gainedLevels = newLevel - previousLevel,
+			remainingXP = newXP,
+		})
+	end
 end
 
 function DataService:AddKill(player: Player)
