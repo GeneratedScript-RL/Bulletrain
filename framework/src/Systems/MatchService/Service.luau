@@ -263,7 +263,8 @@ function MatchService:_endMatch(reason: string)
 
 	self:_reportCompletedMatches(reason)
 
-	local topPlayer, topKills = scoreService:GetTopPlayer()
+	local topPlayers = scoreService:GetTopPlayers(3)
+	local topPlayer = topPlayers[1]
 
 	self:_setAllStates("Menu")
 	self:_disconnectRespawnHooks()
@@ -276,7 +277,8 @@ function MatchService:_endMatch(reason: string)
 	self.Client.MatchEnded:FireAll({
 		reason = reason,
 		topUserId = if topPlayer then topPlayer.UserId else nil,
-		topKills = topKills,
+		topKills = if topPlayer then topPlayer.Kills else 0,
+		topPlayers = topPlayers,
 	})
 
 	self:_runCountdown(Config.EndDuration)

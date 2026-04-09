@@ -11,7 +11,7 @@ local FrameComponents = {
 	ShopHolder = require(script.Shop),
 	Spinning = require(script.Spinning),
 	Stats = require(script.Stats),
-	-- Leaderboard = require(script.Leaderboard),
+	MatchEnd = require(script.MatchEnd),
 }
 
 return FrameComponents

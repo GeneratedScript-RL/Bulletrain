@@ -67,6 +67,23 @@ local function getPlayerFeedName(player: Player): string
 	return player.Name
 end
 
+local function applyTrackedDamage(
+	self: any,
+	attacker: Player,
+	victimHumanoid: Humanoid,
+	weaponName: string,
+	baseDamage: number
+)
+	local appliedDamage = math.max(math.min(baseDamage, victimHumanoid.Health), 0)
+	if appliedDamage <= 0 then
+		return
+	end
+
+	self:_recordDamage(victimHumanoid, attacker, weaponName)
+	scoreService:RecordDamage(attacker, appliedDamage)
+	victimHumanoid:TakeDamage(appliedDamage)
+end
+
 local function makeParamsForShooter(shooterCharacter: Model): RaycastParams
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -103,6 +120,7 @@ end
 function CombatService:_onHumanoidDied(victimHumanoid: Humanoid)
 	local victimPlayer = getPlayerFromHumanoid(victimHumanoid)
 	if victimPlayer then
+		scoreService:RecordDeath(victimPlayer)
 		dataService:AddDeath(victimPlayer)
 		dailyTaskService:RecordEvent(victimPlayer, "Death", {
 			Victim = victimPlayer,
@@ -136,6 +154,7 @@ function CombatService:_onHumanoidDied(victimHumanoid: Humanoid)
 		local now = os.clock()
 		for assister, timestamp in log do
 			if assister ~= killer and assister.Parent == Players and (now - timestamp) <= Config.AssistWindow then
+				scoreService:RecordAssist(assister)
 				dataService:AddAssist(assister)
 				dataService:AddXP(assister, Config.XPPerAssist)
 				dailyTaskService:RecordEvent(assister, "Assist", {
@@ -192,8 +211,13 @@ function CombatService:_fireShotgun(player: Player, origin: Vector3, direction: 
 						if redirectResult then
 							local redirectHumanoid = getHumanoidFromHit(redirectResult.Instance)
 							if redirectHumanoid and redirectHumanoid.Health > 0 then
-								self:_recordDamage(redirectHumanoid, victimPlayer, "Knife")
-								redirectHumanoid:TakeDamage(Config.Shotgun.PelletDamage)
+								applyTrackedDamage(
+									self,
+									victimPlayer,
+									redirectHumanoid,
+									"Knife",
+									Config.Shotgun.PelletDamage
+								)
 							end
 						end
 					end
@@ -203,8 +227,7 @@ function CombatService:_fireShotgun(player: Player, origin: Vector3, direction: 
 						self.Client.ParrySuccess:Fire(victimPlayer)
 					end
 				else
-					self:_recordDamage(humanoid, player, "Shotgun")
-					humanoid:TakeDamage(Config.Shotgun.PelletDamage)
+					applyTrackedDamage(self, player, humanoid, "Shotgun", Config.Shotgun.PelletDamage)
 				end
 			end
 		end
@@ -233,8 +256,7 @@ function CombatService:_knifeSwing(player: Player)
 	if result then
 		local humanoid = getHumanoidFromHit(result.Instance)
 		if humanoid and humanoid.Health > 0 then
-			self:_recordDamage(humanoid, player, "Knife")
-			humanoid:TakeDamage(Config.Knife.Damage)
+			applyTrackedDamage(self, player, humanoid, "Knife", Config.Knife.Damage)
 		end
 	end
 end

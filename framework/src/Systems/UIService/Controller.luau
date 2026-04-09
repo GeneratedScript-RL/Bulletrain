@@ -2,6 +2,7 @@
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 
 local root = script.Parent.Parent.Parent
 local Dependencies = require(root.Dependencies)
@@ -52,6 +53,24 @@ local playerStateService: any
 local currentPlayerState = "Menu"
 local frameRecords = {} :: { [string]: FrameRecord }
 local OPEN_OVERRIDE_ATTRIBUTE = "OpenOverride"
+
+local function disableDefaultPlayerList()
+	task.spawn(function()
+		for _ = 1, 8 do
+			local ok = pcall(function()
+				StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
+			end)
+
+			if ok then
+				return
+			end
+
+			task.wait(1)
+		end
+
+		warn("[UIController] Failed to disable Roblox PlayerList CoreGui")
+	end)
+end
 
 local function findShotgunGameUI(): ScreenGui?
 	local ui = playerGui:FindFirstChild("ShotgunGameUI")
@@ -257,6 +276,8 @@ function UIController:Start()
 	assert(RunService:IsClient(), "UIController must run on the client")
 
 	local trove = Trove.new()
+
+	disableDefaultPlayerList()
 
 	local initialPlayerState = playerStateService.CurrentState:OnReady(5)
 	if type(initialPlayerState) == "string" then

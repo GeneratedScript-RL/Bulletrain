@@ -1,7 +1,6 @@
 --!strict
 
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local root = script.Parent.Parent.Parent.Parent.Parent
 local Dependencies = require(root.Dependencies)
@@ -53,9 +52,7 @@ type GamePlayComponent = {
 	KnifeSlot: WeaponSlotState?,
 	TimerLabel: TextLabel?,
 	PlayerListFrame: GuiObject?,
-	BlueTopTemplate: GuiObject?,
-	RedTopTemplate: GuiObject?,
-	FallbackTopTemplate: GuiObject?,
+	PlayerListTemplate: GuiObject?,
 	DynamicTopEntries: { GuiObject },
 	KillCounts: { [number]: number },
 	ThumbnailCache: { [number]: string },
@@ -68,15 +65,6 @@ type GamePlayComponent = {
 local GamePlay = {}
 
 local localPlayer = Players.LocalPlayer
-
-local function getAssetsFolder(): Folder?
-	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	if assets and assets:IsA("Folder") then
-		return assets
-	end
-
-	return nil
-end
 
 local function findTextLabel(container: Instance?, childName: string?): TextLabel?
 	if not container then
@@ -121,6 +109,36 @@ local function findGuiObject(container: Instance?, childName: string): GuiObject
 	return nil
 end
 
+local function findUIStroke(container: Instance?, childName: string?): UIStroke?
+	if not container then
+		return nil
+	end
+
+	if childName then
+		local namedChild = container:FindFirstChild(childName)
+		if namedChild and namedChild:IsA("UIStroke") then
+			return namedChild
+		end
+	end
+
+	return container:FindFirstChildWhichIsA("UIStroke", true)
+end
+
+local function findUIGradient(container: Instance?, childName: string?): UIGradient?
+	if not container then
+		return nil
+	end
+
+	if childName then
+		local namedChild = container:FindFirstChild(childName)
+		if namedChild and namedChild:IsA("UIGradient") then
+			return namedChild
+		end
+	end
+
+	return container:FindFirstChildWhichIsA("UIGradient", true)
+end
+
 local function findChildWithPrefix(container: Instance?, prefix: string): GuiObject?
 	if not container then
 		return nil
@@ -145,6 +163,30 @@ local function destroyChildrenWithPrefix(container: Instance?, prefix: string)
 			child:Destroy()
 		end
 	end
+end
+
+local function prepareTemplateFromPrefix(container: GuiObject?, prefix: string, templateName: string): GuiObject?
+	if not container then
+		return nil
+	end
+
+	local template: GuiObject? = nil
+
+	for _, child in ipairs(container:GetChildren()) do
+		if child:IsA("GuiObject") and string.sub(child.Name, 1, #prefix) == prefix then
+			if template == nil then
+				template = child
+				template.Name = templateName
+				template.Visible = false
+				template.Archivable = true
+				template.Parent = nil
+			else
+				child:Destroy()
+			end
+		end
+	end
+
+	return template
 end
 
 local function destroyGuiObjects(guiObjects: { GuiObject })
@@ -350,41 +392,49 @@ local function pushKillFeedEntry(component: GamePlayComponent, killerName: strin
 	end)
 end
 
-local function isRedTeamPlayer(player: Player): boolean
+local function getPlayerAccentColor(player: Player): Color3?
 	local team = player.Team
 	if team then
-		local teamName = string.lower(team.Name)
-		if string.find(teamName, "red", 1, true) then
-			return true
-		end
-
-		if string.find(teamName, "blue", 1, true) then
-			return false
-		end
+		return team.TeamColor.Color
 	end
 
-	local teamColorName = string.lower(player.TeamColor.Name)
-	if string.find(teamColorName, "red", 1, true) then
-		return true
+	if not player.Neutral then
+		return player.TeamColor.Color
 	end
 
-	return false
+	return nil
 end
 
-local function getTopTemplate(component: GamePlayComponent, player: Player): GuiObject?
-	if isRedTeamPlayer(player) and component.RedTopTemplate then
-		return component.RedTopTemplate
+local function applyPlayerCardTheme(player: Player, row: GuiObject)
+	local accentColor = getPlayerAccentColor(player)
+	if not accentColor then
+		return
 	end
 
-	if component.BlueTopTemplate then
-		return component.BlueTopTemplate
+	row.BackgroundColor3 = accentColor:Lerp(Color3.new(0, 0, 0), 0.24)
+
+	local imageLabel = findImageLabel(row, "ImageLabel")
+	if imageLabel then
+		imageLabel.BackgroundColor3 = accentColor:Lerp(Color3.new(1, 1, 1), 0.18)
 	end
 
-	if component.RedTopTemplate then
-		return component.RedTopTemplate
+	local innerStroke = findUIStroke(row, "Inner")
+	if innerStroke then
+		innerStroke.Color = accentColor:Lerp(Color3.new(1, 1, 1), 0.5)
 	end
 
-	return component.FallbackTopTemplate
+	local outerStroke = findUIStroke(row, "Outer")
+	if outerStroke then
+		outerStroke.Color = accentColor:Lerp(Color3.new(0, 0, 0), 0.08)
+	end
+
+	local gradient = findUIGradient(row, "UIGradient")
+	if gradient then
+		gradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, accentColor:Lerp(Color3.new(1, 1, 1), 0.2)),
+			ColorSequenceKeypoint.new(1, accentColor:Lerp(Color3.new(0, 0, 0), 0.22)),
+		})
+	end
 end
 
 local function getRankedPlayers(component: GamePlayComponent): { RankedPlayer }
@@ -450,17 +500,13 @@ local function renderTopPlayers(component: GamePlayComponent)
 	destroyGuiObjects(component.DynamicTopEntries)
 
 	local playerListFrame = component.PlayerListFrame
-	if not playerListFrame then
+	local playerListTemplate = component.PlayerListTemplate
+	if not playerListFrame or not playerListTemplate then
 		return
 	end
 
 	for index, rankedPlayer in ipairs(getRankedPlayers(component)) do
-		local template = getTopTemplate(component, rankedPlayer.Player)
-		if not template then
-			continue
-		end
-
-		local row = template:Clone()
+		local row = playerListTemplate:Clone()
 		row.Name = ("TopPlayer_%d"):format(rankedPlayer.Player.UserId)
 		row.LayoutOrder = index
 		row.Visible = true
@@ -480,6 +526,8 @@ local function renderTopPlayers(component: GamePlayComponent)
 		if imageLabel then
 			applyThumbnail(component, rankedPlayer.Player, imageLabel)
 		end
+
+		applyPlayerCardTheme(rankedPlayer.Player, row)
 
 		row.Parent = playerListFrame
 		table.insert(component.DynamicTopEntries, row)
@@ -518,13 +566,8 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 
 	local topFrame = findGuiObject(gamePlayFrame, "Top")
 	local playerListFrame = findGuiObject(topFrame, "PlayerList")
-	local fallbackTopTemplateSource = findChildWithPrefix(playerListFrame, "Player")
-	local fallbackTopTemplate = if fallbackTopTemplateSource then fallbackTopTemplateSource:Clone() else nil
+	local playerListTemplate = prepareTemplateFromPrefix(playerListFrame, "Player", "PlayerTemplate")
 	local timerFrame = findGuiObject(topFrame, "Timer")
-
-	local assets = getAssetsFolder()
-	local blueTopTemplate = if assets then assets:FindFirstChild("BluePlayer") else nil
-	local redTopTemplate = if assets then assets:FindFirstChild("RedPlayer") else nil
 
 	local shotgunSlot = createWeaponSlotState(gamePlayFrame:FindFirstChild("ShotgunSlot"))
 	local knifeSlot = createWeaponSlotState(gamePlayFrame:FindFirstChild("KnifeSlot"))
@@ -547,9 +590,7 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 		KnifeSlot = knifeSlot,
 		TimerLabel = findTextLabel(timerFrame, "Amount"),
 		PlayerListFrame = playerListFrame,
-		BlueTopTemplate = if blueTopTemplate and blueTopTemplate:IsA("GuiObject") then blueTopTemplate else nil,
-		RedTopTemplate = if redTopTemplate and redTopTemplate:IsA("GuiObject") then redTopTemplate else nil,
-		FallbackTopTemplate = fallbackTopTemplate,
+		PlayerListTemplate = playerListTemplate,
 		DynamicTopEntries = {},
 		KillCounts = {},
 		ThumbnailCache = {},
@@ -560,14 +601,14 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 	}
 
 	destroyChildrenWithPrefix(killFeedFrame, "DeathLog")
-	destroyChildrenWithPrefix(playerListFrame, "Player")
 
 	if component.KillFeedTemplate then
 		component.KillFeedTemplate.Visible = true
 	end
 
-	if component.FallbackTopTemplate then
-		component.FallbackTopTemplate.Visible = true
+	if component.PlayerListTemplate then
+		component.PlayerListTemplate.Visible = false
+		trove:Add(component.PlayerListTemplate)
 	end
 
 	local initialCountdown = matchService.Countdown:OnReady(5)
@@ -599,6 +640,7 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 		trove:Connect(player:GetAttributeChangedSignal("State"), refreshLeaderboard)
 		trove:Connect(player:GetPropertyChangedSignal("Team"), refreshLeaderboard)
 		trove:Connect(player:GetPropertyChangedSignal("TeamColor"), refreshLeaderboard)
+		trove:Connect(player:GetPropertyChangedSignal("Neutral"), refreshLeaderboard)
 	end
 
 	for _, player in ipairs(Players:GetPlayers()) do

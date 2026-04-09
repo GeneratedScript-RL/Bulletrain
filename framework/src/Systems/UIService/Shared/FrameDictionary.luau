@@ -62,6 +62,9 @@ local FrameDictionary: { [string]: FrameDetails } = {
 	Stats = {
 		LobbyUI = true,
 	},
+	MatchEnd = {
+		LobbyUI = true,
+	},
 }
 
 return FrameDictionary
