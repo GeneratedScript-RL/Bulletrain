@@ -17,15 +17,17 @@ local playerStateService: any
 local scoreService: any
 local dataService: any
 local dailyTaskService: any
+local rewardService: any
 
 local CombatService = framework.CreateService({
 	Name = "CombatService",
-	Dependencies = { "PlayerStateService", "ScoreService", "DataService", "DailyTaskService" },
+	Dependencies = { "PlayerStateService", "ScoreService", "DataService", "DailyTaskService", "RewardService" },
 	Client = {
 		ShotgunFire = framework.CreateSignal(),
 		KnifeSwing = framework.CreateSignal(),
 		ParryStart = framework.CreateSignal(),
 		ParrySuccess = framework.CreateSignal(),
+		HitConfirmed = framework.CreateSignal(),
 		KillFeedEntryAdded = framework.CreateSignal(),
 		ReplicateShotgunBullet = framework.CreateUnreliableSignal(),
 	},
@@ -72,7 +74,8 @@ local function applyTrackedDamage(
 	attacker: Player,
 	victimHumanoid: Humanoid,
 	weaponName: string,
-	baseDamage: number
+	baseDamage: number,
+	hitPosition: Vector3?
 )
 	local appliedDamage = math.max(math.min(baseDamage, victimHumanoid.Health), 0)
 	if appliedDamage <= 0 then
@@ -82,6 +85,10 @@ local function applyTrackedDamage(
 	self:_recordDamage(victimHumanoid, attacker, weaponName)
 	scoreService:RecordDamage(attacker, appliedDamage)
 	victimHumanoid:TakeDamage(appliedDamage)
+
+	if hitPosition and attacker.Parent == Players then
+		self.Client.HitConfirmed:Fire(attacker, hitPosition)
+	end
 end
 
 local function makeParamsForShooter(shooterCharacter: Model): RaycastParams
@@ -131,8 +138,7 @@ function CombatService:_onHumanoidDied(victimHumanoid: Humanoid)
 	if killer and killer.Parent == Players and killer ~= victimPlayer then
 		scoreService:IncrementKills(killer)
 		dataService:AddKill(killer)
-		dataService:AddXP(killer, Config.XPPerKill)
-		dataService:AddCredits(killer, Config.CreditsPerKill)
+		rewardService:AwardKill(killer)
 		dailyTaskService:RecordEvent(killer, "Kill", {
 			Killer = killer,
 			Victim = victimPlayer,
@@ -156,7 +162,7 @@ function CombatService:_onHumanoidDied(victimHumanoid: Humanoid)
 			if assister ~= killer and assister.Parent == Players and (now - timestamp) <= Config.AssistWindow then
 				scoreService:RecordAssist(assister)
 				dataService:AddAssist(assister)
-				dataService:AddXP(assister, Config.XPPerAssist)
+				rewardService:AwardAssist(assister)
 				dailyTaskService:RecordEvent(assister, "Assist", {
 					Assister = assister,
 					Killer = killer,
@@ -216,7 +222,8 @@ function CombatService:_fireShotgun(player: Player, origin: Vector3, direction: 
 									victimPlayer,
 									redirectHumanoid,
 									"Knife",
-									Config.Shotgun.PelletDamage
+									Config.Shotgun.PelletDamage,
+									redirectResult.Position
 								)
 							end
 						end
@@ -227,7 +234,7 @@ function CombatService:_fireShotgun(player: Player, origin: Vector3, direction: 
 						self.Client.ParrySuccess:Fire(victimPlayer)
 					end
 				else
-					applyTrackedDamage(self, player, humanoid, "Shotgun", Config.Shotgun.PelletDamage)
+					applyTrackedDamage(self, player, humanoid, "Shotgun", Config.Shotgun.PelletDamage, result.Position)
 				end
 			end
 		end
@@ -256,7 +263,7 @@ function CombatService:_knifeSwing(player: Player)
 	if result then
 		local humanoid = getHumanoidFromHit(result.Instance)
 		if humanoid and humanoid.Health > 0 then
-			applyTrackedDamage(self, player, humanoid, "Knife", Config.Knife.Damage)
+			applyTrackedDamage(self, player, humanoid, "Knife", Config.Knife.Damage, result.Position)
 		end
 	end
 end
@@ -266,6 +273,7 @@ function CombatService:Init()
 	scoreService = framework.GetService("ScoreService")
 	dataService = framework.GetService("DataService")
 	dailyTaskService = framework.GetService("DailyTaskService")
+	rewardService = framework.GetService("RewardService")
 
 	self.Client.ShotgunFire:Connect(function(player: Player, origin: Vector3, direction: Vector3)
 		self:_fireShotgun(player, origin, direction)

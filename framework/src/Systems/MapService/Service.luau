@@ -15,6 +15,13 @@ local MapService = framework.CreateService({
 
 MapService._currentMap = nil :: Model?
 
+local function destroyActiveMapContainer()
+	local existingMap = Workspace:FindFirstChild(MAP_CONTAINER_NAME)
+	if existingMap then
+		existingMap:Destroy()
+	end
+end
+
 local function getMapsFolder(): Folder?
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
 	if not assets then
@@ -32,9 +39,17 @@ local function getMapsFolder(): Folder?
 end
 
 function MapService:UnloadCurrentMap()
-	if self._currentMap then
-		self._currentMap:Destroy()
-		self._currentMap = nil
+	local currentMap = self._currentMap
+	self._currentMap = nil
+
+	if currentMap then
+		currentMap:Destroy()
+	end
+
+	local existingMap = Workspace:FindFirstChild(MAP_CONTAINER_NAME)
+	if existingMap and existingMap ~= currentMap then
+		warn("[MapService] Removed pre-existing ActiveMap from Workspace")
+		existingMap:Destroy()
 	end
 end
 
@@ -84,6 +99,10 @@ function MapService:GetSpawnPoints(): { BasePart }
 	end
 
 	return points
+end
+
+function MapService:Init()
+	destroyActiveMapContainer()
 end
 
 return MapService

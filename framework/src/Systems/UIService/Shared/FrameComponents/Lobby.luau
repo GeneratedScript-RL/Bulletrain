@@ -165,12 +165,13 @@ local function bindTopRight(
 	local barFrame = if levelHolder then levelHolder:FindFirstChild("Bar") else nil
 	local fullBar = if barFrame then (barFrame:FindFirstChild("FullBar") :: GuiObject?) else nil
 	local xpLabel = findTextLabel(barFrame, "Level")
+	local levelStatsButton = findButton(levelPlusFrame, "ImageButton")
 
 	local originalBarYScale = if fullBar then fullBar.Size.Y.Scale else 1
 	local originalBarYOffset = if fullBar then fullBar.Size.Y.Offset else 0
 
-	applyHoverTween(trove, currencyPlusFrame, 0.04, 0.12)
-	applyHoverTween(trove, levelPlusFrame, 0.03, 0.12)
+	applyHoverTween(trove, coinsPlusButton, 0.04, 0.12)
+	applyHoverTween(trove, levelStatsButton, 0.03, 0.12)
 
 	if coinsPlusButton then
 		trove:Connect(coinsPlusButton.Activated, function()
@@ -180,15 +181,12 @@ local function bindTopRight(
 		warn("[UIController] Lobby.TopRight.CurrencyFrame.PlusButton.ImageButton not found")
 	end
 
-	if levelPlusFrame then
-		local levelStatsButton = findButton(levelPlusFrame, "ImageButton")
-		if levelStatsButton then
-			trove:Connect(levelStatsButton.Activated, function()
-				statsController:Open()
-			end)
-		else
-			warn("[UIController] Lobby.TopRight.LevelFrame.PlusButton.ImageButton not found")
-		end
+	if levelStatsButton then
+		trove:Connect(levelStatsButton.Activated, function()
+			statsController:Open()
+		end)
+	else
+		warn("[UIController] Lobby.TopRight.LevelFrame.PlusButton.ImageButton not found")
 	end
 
 	ProfileSnapshot.Observe(localPlayer, trove, function(snapshot: ProfileSnapshot.ProfileSnapshot)

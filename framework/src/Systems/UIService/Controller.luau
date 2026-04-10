@@ -73,7 +73,7 @@ local function disableDefaultPlayerList()
 end
 
 local function findShotgunGameUI(): ScreenGui?
-	local ui = playerGui:FindFirstChild("ShotgunGameUI")
+	local ui = playerGui:WaitForChild("ShotgunGameUI", 10)
 	if ui and ui:IsA("ScreenGui") then
 		return ui
 	end
@@ -188,12 +188,7 @@ local function loadFrame(frame: Instance)
 	destroyFrameRecord(frameName)
 
 	if componentModule then
-		local ok, componentOrError = pcall(componentModule.init, frame)
-		if not ok then
-			warn(("[UIController] Failed to initialize frame component '%s': %s"):format(frameName, tostring(componentOrError)))
-		else
-			component = componentOrError
-		end
+		componentModule.init(frame)
 	end
 
 	frameRecords[frameName] = {

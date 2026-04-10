@@ -18,6 +18,8 @@ export type Weapon = {
 local Viewmodel = {}
 Viewmodel.__index = Viewmodel
 
+type ReloadStateChanged = (isReloading: boolean, progress: number, tweenDuration: number?) -> ()
+
 local function getAssetsFolder(): Folder?
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
 	if assets and assets:IsA("Folder") then
@@ -38,12 +40,19 @@ local function setModelNoCollide(model: Model)
 	end
 end
 
-function Viewmodel.new(localPlayer: Player, camera: Camera, animationController: any, combatService: any)
+function Viewmodel.new(
+	localPlayer: Player,
+	camera: Camera,
+	animationController: any,
+	combatService: any,
+	onReloadStateChanged: ReloadStateChanged?
+)
 	local self = setmetatable({}, Viewmodel)
 	self._player = localPlayer
 	self._camera = camera
 	self._animationController = animationController
 	self._combatService = combatService
+	self._onReloadStateChanged = onReloadStateChanged
 	self._vmModel = nil :: Model?
 	self._weapon = nil :: Weapon?
 	self._connection = nil :: RBXScriptConnection?
@@ -53,14 +62,14 @@ function Viewmodel.new(localPlayer: Player, camera: Camera, animationController:
 	self._equippedKnifeSkinConnection = localPlayer:GetAttributeChangedSignal("EquippedKnifeSkin"):Connect(function()
 		local weapon = self._weapon
 		if weapon and weapon.Name == "Knife" then
-			self:Equip("Knife")
+			self:Equip("Knife", true)
 		end
 	end)
 
 	self._equippedShotgunSkinConnection = localPlayer:GetAttributeChangedSignal("EquippedShotgunSkin"):Connect(function()
 		local weapon = self._weapon
 		if weapon and weapon.Name == "Shotgun" then
-			self:Equip("Shotgun")
+			self:Equip("Shotgun", true)
 		end
 	end)
 
@@ -166,7 +175,15 @@ function Viewmodel:Start()
 	end)
 end
 
-function Viewmodel:Equip(weaponName: string)
+function Viewmodel:Equip(weaponName: string, force: boolean?)
+	if not force and self:GetEquippedWeaponName() == weaponName then
+		return
+	end
+
+	if self._onReloadStateChanged then
+		self._onReloadStateChanged(false, 0, 0)
+	end
+
 	if self._weapon then
 		self._weapon:Destroy()
 		self._weapon = nil
@@ -180,7 +197,14 @@ function Viewmodel:Equip(weaponName: string)
 	if weaponName == "Knife" then
 		self._weapon = Knife.new(self._player, self._camera, self._vmModel, self._animationController, self._combatService)
 	else
-		self._weapon = Shotgun.new(self._player, self._camera, self._vmModel, self._animationController, self._combatService)
+		self._weapon = Shotgun.new(
+			self._player,
+			self._camera,
+			self._vmModel,
+			self._animationController,
+			self._combatService,
+			self._onReloadStateChanged
+		)
 	end
 end
 
@@ -209,6 +233,10 @@ function Viewmodel:Parry()
 end
 
 function Viewmodel:Destroy()
+	if self._onReloadStateChanged then
+		self._onReloadStateChanged(false, 0, 0)
+	end
+
 	if self._connection then
 		self._connection:Disconnect()
 		self._connection = nil

@@ -84,9 +84,11 @@ function ButtonHoverTween.apply(
 	end))
 
 	-- Activated (clicked)
-	table.insert(connections, button.Activated:Connect(function()
-		tweenToSize(unhoverSize)
-	end))
+	if button:IsA("GuiButton") then
+		table.insert(connections, button.Activated:Connect(function()
+			tweenToSize(unhoverSize)
+		end))
+	end
 
 	return {
 		Destroy = function(_self: HoverTweenHandle)

@@ -6,6 +6,7 @@ return {
 		KnifeSwing = "KnifeSwing",
 		ParryStart = "KnifeParryStart",
 		ParrySuccess = "KnifeParrySuccess",
+		HitConfirmed = "HitConfirmed",
 		ReplicateShotgunBullet = "ReplicateShotgunBullet",
 	},
 	Shotgun = {
@@ -21,7 +22,4 @@ return {
 	},
 	ParryWindow = 0.3,
 	AssistWindow = 8,
-	XPPerKill = 25,
-	XPPerAssist = 10,
-	CreditsPerKill = 50,
 }
