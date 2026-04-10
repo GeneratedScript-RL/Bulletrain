@@ -64,10 +64,12 @@ end
 
 function SlideController:_stopSlide()
 	if not self._sliding then
+		viewmodelController:SetAimBlocked(false)
 		return
 	end
 
 	self._sliding = false
+	viewmodelController:SetAimBlocked(false)
 
 	if self._connection then
 		self._connection:Disconnect()
@@ -131,6 +133,8 @@ function SlideController:_startSlide()
 	if humanoid.FloorMaterial == Enum.Material.Air then
 		return
 	end
+
+	viewmodelController:SetAimBlocked(true)
 
 	local animationName = self:_getSlideAnimationName()
 	animationController:PlayAnimationToViewmodel(animationName, Enum.AnimationPriority.Action2, true)

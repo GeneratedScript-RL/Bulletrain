@@ -39,6 +39,31 @@ local function applySpread(direction: Vector3, spreadDegrees: number): Vector3
 	return (base * CFrame.Angles(pitch, yaw, 0)).LookVector
 end
 
+local function getSpreadDegrees(isAiming: boolean): number
+	local spreadMultiplier = if isAiming then CombatConfig.Shotgun.AimSpreadMultiplier else 1
+	return CombatConfig.Shotgun.SpreadDegrees * spreadMultiplier
+end
+
+local function findAttachmentByName(container: Instance, targetName: string): Attachment?
+	for _, descendant in container:GetDescendants() do
+		if descendant:IsA("Attachment") and string.lower(descendant.Name) == string.lower(targetName) then
+			return descendant
+		end
+	end
+
+	return nil
+end
+
+local function findDescendantByName(container: Instance, targetName: string): Instance?
+	for _, descendant in container:GetDescendants() do
+		if string.lower(descendant.Name) == string.lower(targetName) then
+			return descendant
+		end
+	end
+
+	return nil
+end
+
 local function playPhase(
 	animationController: any,
 	animator: AnimationController,
@@ -99,6 +124,8 @@ function Shotgun.new(
 	self._shells = SHELL_CAPACITY
 	self._reloading = false
 	self._reloadCancelled = false
+	self._isAiming = false
+	self._muzzleAttachment = nil :: Attachment?
 	self._runConnection = nil :: RBXScriptConnection?
 	self._characterAddedConnection = nil :: RBXScriptConnection?
 	self._cosmeticFolder = nil :: Folder?
@@ -107,6 +134,8 @@ function Shotgun.new(
 	self.RunTrack = nil :: AnimationTrack?
 	self.RunTrackAvatar = nil :: AnimationTrack?
 	self.InspectTrack = nil :: AnimationTrack?
+	self.FireTrack = nil :: AnimationTrack?
+	self.FireTrackAvatar = nil :: AnimationTrack?
 
 	self.InspectTrack = animationController:GetAnimation(self.Animator, "ShotgunInspect", Enum.AnimationPriority.Action2)
 	self.IdleTrack = animationController:PlayAnimation(self.Animator, "ShotgunIdle", Enum.AnimationPriority.Action, true)
@@ -140,6 +169,8 @@ function Shotgun.new(
 			Debris:AddItem(bullet, 1)
 		end
 	end)
+
+	self:_refreshMuzzleAttachment()
 
 	return self
 end
@@ -184,9 +215,78 @@ function Shotgun:_refreshAvatarTracks()
 	end
 end
 
+function Shotgun:_stopTrack(track: AnimationTrack?)
+	if track and track.IsPlaying then
+		track:Stop()
+	end
+end
+
+function Shotgun:_stopNonIdleAnimations()
+	self:_stopTrack(self.RunTrack)
+	self:_stopTrack(self.RunTrackAvatar)
+	self:_stopTrack(self.InspectTrack)
+	self:_stopTrack(self.FireTrack)
+	self:_stopTrack(self.FireTrackAvatar)
+end
+
+function Shotgun:_refreshMuzzleAttachment()
+	self._muzzleAttachment = nil
+
+	local shotgunNode = findDescendantByName(self._viewmodel, "ShotGun")
+	if not shotgunNode then
+		shotgunNode = findDescendantByName(self._viewmodel, "Shotgun")
+	end
+
+	if shotgunNode then
+		local exactMisspelled = shotgunNode:FindFirstChild("Attatchment", true)
+		if exactMisspelled and exactMisspelled:IsA("Attachment") then
+			self._muzzleAttachment = exactMisspelled
+			return
+		end
+
+		local exactCorrect = shotgunNode:FindFirstChild("Attachment", true)
+		if exactCorrect and exactCorrect:IsA("Attachment") then
+			self._muzzleAttachment = exactCorrect
+			return
+		end
+	end
+
+	self._muzzleAttachment = findAttachmentByName(self._viewmodel, "Attatchment")
+	if self._muzzleAttachment then
+		return
+	end
+
+	self._muzzleAttachment = findAttachmentByName(self._viewmodel, "Attachment")
+end
+
+function Shotgun:_getFireOriginAndDirection(): (Vector3, Vector3)
+	local origin = (self._camera.CFrame * CFrame.new(2, -1, -2.5)).Position
+	local cameraLook = self._camera.CFrame.LookVector
+	local targetPoint = self._camera.CFrame.Position + (cameraLook * CombatConfig.Shotgun.Range)
+	local muzzleAttachment = self._muzzleAttachment
+
+	if muzzleAttachment and muzzleAttachment:IsDescendantOf(self._viewmodel) then
+		origin = muzzleAttachment.WorldPosition
+	end
+
+	local directionOffset = targetPoint - origin
+	local direction = cameraLook
+	if directionOffset.Magnitude > 0 then
+		direction = directionOffset.Unit
+	end
+
+	return origin, direction
+end
+
 function Shotgun:_updateRunAnimation()
+	if self._isAiming then
+		self:_stopTrack(self.RunTrack)
+		self:_stopTrack(self.RunTrackAvatar)
+		return
+	end
+
 	local character = self.character
-	if not character or not self.RunTrack or not self.RunTrackAvatar then
+	if not character or not self.RunTrack then
 		return
 	end
 
@@ -201,12 +301,14 @@ function Shotgun:_updateRunAnimation()
 			self.RunTrack:Play()
 		end
 
-		if not self.RunTrackAvatar.IsPlaying then
+		if self.RunTrackAvatar and not self.RunTrackAvatar.IsPlaying then
 			self.RunTrackAvatar:Play()
 		end
 	else
 		self.RunTrack:Stop()
-		self.RunTrackAvatar:Stop()
+		if self.RunTrackAvatar then
+			self.RunTrackAvatar:Stop()
+		end
 	end
 end
 
@@ -223,22 +325,40 @@ function Shotgun:PrimaryFire()
 	self.OnCooldown = true
 	self._shells -= 1
 
-	local originCFrame = self._camera.CFrame * CFrame.new(2, -1, -2.5)
-	local direction = self._camera.CFrame.LookVector
+	local origin, direction = self:_getFireOriginAndDirection()
+	local isAiming = self._isAiming
 
 	if self.InspectTrack then
 		self.InspectTrack:Stop()
 	end
 
-	self._combatService.ShotgunFire:Fire(originCFrame.Position, direction)
+	self._combatService.ShotgunFire:Fire(origin, direction, isAiming)
 
-	local viewmodelAnimation = self._animationController:PlayAnimation(self.Animator, "ShotgunFire", Enum.AnimationPriority.Action3)
-	self._animationController:PlayAnimationToAvatar("ShotgunFire", Enum.AnimationPriority.Action3)
+	local viewmodelAnimation = nil :: AnimationTrack?
+	local avatarFireTrack = nil :: AnimationTrack?
+	if not isAiming then
+		viewmodelAnimation = self._animationController:PlayAnimation(self.Animator, "ShotgunFire", Enum.AnimationPriority.Action3)
+		self.FireTrack = viewmodelAnimation
+		avatarFireTrack = self._animationController:PlayAnimationToAvatar("ShotgunFire", Enum.AnimationPriority.Action3)
+		self.FireTrackAvatar = avatarFireTrack
+	else
+		self:_stopNonIdleAnimations()
+	end
 
 	task.defer(function()
 		if viewmodelAnimation then
 			viewmodelAnimation.Stopped:Wait()
+			if self.FireTrack == viewmodelAnimation then
+				self.FireTrack = nil
+			end
 		end
+
+		if avatarFireTrack and self.FireTrackAvatar == avatarFireTrack and not avatarFireTrack.IsPlaying then
+			self.FireTrackAvatar = nil
+		end
+	end)
+
+	task.delay(CombatConfig.Shotgun.FireCooldown, function()
 		self.OnCooldown = false
 	end)
 
@@ -248,9 +368,11 @@ function Shotgun:PrimaryFire()
 	params.IgnoreWater = true
 	self._behavior.RaycastParams = params
 
+	local spreadDegrees = getSpreadDegrees(isAiming)
+
 	for _ = 1, CombatConfig.Shotgun.Pellets do
-		local rayDirection = applySpread(direction, CombatConfig.Shotgun.SpreadDegrees)
-		self._caster:Fire(originCFrame.Position, rayDirection, CombatConfig.Shotgun.MuzzleVelocity, self._behavior)
+		local rayDirection = applySpread(direction, spreadDegrees)
+		self._caster:Fire(origin, rayDirection, CombatConfig.Shotgun.MuzzleVelocity, self._behavior)
 	end
 end
 
@@ -347,8 +469,32 @@ function Shotgun:Reload()
 end
 
 function Shotgun:Inspect()
+	if self._isAiming then
+		return
+	end
+
 	if self.InspectTrack then
 		self.InspectTrack:Play()
+	end
+end
+
+function Shotgun:CanAim(): boolean
+	return not self._reloading
+end
+
+function Shotgun:SetAiming(isAiming: boolean)
+	if isAiming and self._reloading then
+		isAiming = false
+	end
+
+	if self._isAiming == isAiming then
+		return
+	end
+
+	self._isAiming = isAiming
+
+	if isAiming then
+		self:_stopNonIdleAnimations()
 	end
 end
 

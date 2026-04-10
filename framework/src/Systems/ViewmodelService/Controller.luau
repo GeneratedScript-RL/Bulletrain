@@ -35,6 +35,8 @@ ViewmodelController._equippedWeaponName = nil :: string?
 ViewmodelController._reloadVisible = false
 ViewmodelController._reloadProgress = 0
 ViewmodelController._reloadTweenDuration = 0
+ViewmodelController._isAiming = false
+ViewmodelController._aimBlocked = false
 ViewmodelController.WeaponChanged = nil :: any
 ViewmodelController.ReloadChanged = nil :: any
 
@@ -75,6 +77,7 @@ function ViewmodelController:Enable()
 	end
 
 	self._enabled = true
+	self._aimBlocked = false
 	self:_setReloadState(false, 0, 0)
 
 	if self._vm then
@@ -101,12 +104,15 @@ function ViewmodelController:Enable()
 		end
 	)
 	self._vm:Equip("Shotgun")
+	self._vm:SetAiming(self._isAiming)
 	self._vm:Start()
 	self:_setEquippedWeaponName(self._vm:GetEquippedWeaponName())
 end
 
 function ViewmodelController:Disable()
 	self._enabled = false
+	self._isAiming = false
+	self._aimBlocked = false
 
 	if self._vm then
 		self._vm:Destroy()
@@ -154,6 +160,18 @@ function ViewmodelController:GetReloadTweenDuration(): number
 	return self._reloadTweenDuration
 end
 
+function ViewmodelController:IsAiming(): boolean
+	return self._isAiming
+end
+
+function ViewmodelController:CanAim(): boolean
+	if not self._vm or self._aimBlocked then
+		return false
+	end
+
+	return self._vm:CanAim()
+end
+
 function ViewmodelController:PrimaryFire()
 	if self._vm then
 		self._vm:PrimaryFire()
@@ -168,6 +186,10 @@ end
 
 function ViewmodelController:Reload()
 	if self._vm then
+		if self._isAiming then
+			self:SetAiming(false)
+		end
+
 		self._vm:Reload()
 	end
 end
@@ -185,8 +207,37 @@ function ViewmodelController:Equip(name: string, force: boolean?)
 		end
 
 		self._vm:Equip(name, force)
+		self._vm:SetAiming(self._isAiming)
 		self:_setReloadState(false, 0, 0)
 		self:_setEquippedWeaponName(self._vm:GetEquippedWeaponName())
+	end
+end
+
+function ViewmodelController:SetAiming(isAiming: boolean)
+	if isAiming and not self:CanAim() then
+		return
+	end
+
+	if self._isAiming == isAiming then
+		return
+	end
+
+	self._isAiming = isAiming
+
+	if self._vm then
+		self._vm:SetAiming(isAiming)
+	end
+end
+
+function ViewmodelController:SetAimBlocked(isBlocked: boolean)
+	if self._aimBlocked == isBlocked then
+		return
+	end
+
+	self._aimBlocked = isBlocked
+
+	if isBlocked and self._isAiming then
+		self:SetAiming(false)
 	end
 end
 

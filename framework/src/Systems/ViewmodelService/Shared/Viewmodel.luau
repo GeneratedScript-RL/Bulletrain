@@ -3,6 +3,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+local root = script.Parent.Parent.Parent.Parent
+local CombatConfig = require(root.Systems.CombatService.Shared.Config)
 local Shotgun = require(script.Parent.Weapons.Shotgun)
 local Knife = require(script.Parent.Weapons.Knife)
 
@@ -12,6 +14,8 @@ export type Weapon = {
 	Inspect: (self: Weapon) -> (),
 	Reload: (self: Weapon) -> (),
 	Parry: (self: Weapon) -> (),
+	CanAim: (self: Weapon) -> boolean,
+	SetAiming: (self: Weapon, isAiming: boolean) -> (),
 	Destroy: (self: Weapon) -> (),
 }
 
@@ -19,6 +23,8 @@ local Viewmodel = {}
 Viewmodel.__index = Viewmodel
 
 type ReloadStateChanged = (isReloading: boolean, progress: number, tweenDuration: number?) -> ()
+
+local DEFAULT_VIEWMODEL_ROTATION = CFrame.Angles(math.rad(180), 0, math.rad(180))
 
 local function getAssetsFolder(): Folder?
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
@@ -58,6 +64,9 @@ function Viewmodel.new(
 	self._connection = nil :: RBXScriptConnection?
 	self._equippedKnifeSkinConnection = nil :: RBXScriptConnection?
 	self._equippedShotgunSkinConnection = nil :: RBXScriptConnection?
+	self._sightsAttachment = nil :: Attachment?
+	self._aimRequested = false
+	self._isAiming = false
 
 	self._equippedKnifeSkinConnection = localPlayer:GetAttributeChangedSignal("EquippedKnifeSkin"):Connect(function()
 		local weapon = self._weapon
@@ -74,6 +83,54 @@ function Viewmodel.new(
 	end)
 
 	return self
+end
+
+function Viewmodel:_getDefaultPivot(): CFrame
+	return self._camera.CFrame * DEFAULT_VIEWMODEL_ROTATION
+end
+
+function Viewmodel:_refreshSightsAttachment()
+	self._sightsAttachment = nil
+
+	local vmModel = self._vmModel
+	if not vmModel then
+		return
+	end
+
+	local attachment = vmModel:FindFirstChild("Sights", true)
+	if attachment and attachment:IsA("Attachment") then
+		self._sightsAttachment = attachment
+	end
+end
+
+function Viewmodel:_getAimPivot(): CFrame?
+	local vmModel = self._vmModel
+	local sightsAttachment = self._sightsAttachment
+	if not vmModel or not sightsAttachment or not sightsAttachment:IsDescendantOf(vmModel) then
+		return nil
+	end
+
+	local targetSightCFrame = self._camera.CFrame * CFrame.new(0, 0, -CombatConfig.Shotgun.AimSightsDistance)
+	local sightOffset = vmModel:GetPivot():ToObjectSpace(sightsAttachment.WorldCFrame)
+	return targetSightCFrame * sightOffset:Inverse()
+end
+
+function Viewmodel:_resolveAimState(): boolean
+	local weapon = self._weapon
+	return self._aimRequested and weapon ~= nil and weapon:CanAim()
+end
+
+function Viewmodel:_applyAimState()
+	local resolvedAiming = self:_resolveAimState()
+	if self._isAiming == resolvedAiming then
+		return
+	end
+
+	self._isAiming = resolvedAiming
+
+	if self._weapon then
+		self._weapon:SetAiming(resolvedAiming)
+	end
 end
 
 function Viewmodel:_ensureModelForWeapon(weaponName: string)
@@ -137,7 +194,9 @@ function Viewmodel:_ensureModelForWeapon(weaponName: string)
 	clone.Name = "Viewmodel"
 	setModelNoCollide(clone)
 	clone.Parent = self._camera
+	clone:PivotTo(self:_getDefaultPivot())
 	self._vmModel = clone
+	self:_refreshSightsAttachment()
 end
 
 function Viewmodel:GetAnimationTarget(): Instance?
@@ -170,7 +229,15 @@ function Viewmodel:Start()
 
 	self._connection = RunService.RenderStepped:Connect(function()
 		if self._vmModel then
-			self._vmModel:PivotTo(self._camera.CFrame * CFrame.Angles(math.rad(180), 0, math.rad(180)))
+			local targetPivot = self:_getDefaultPivot()
+			if self._isAiming then
+				local aimPivot = self:_getAimPivot()
+				if aimPivot then
+					targetPivot = aimPivot
+				end
+			end
+
+			self._vmModel:PivotTo(targetPivot)
 		end
 	end)
 end
@@ -206,6 +273,8 @@ function Viewmodel:Equip(weaponName: string, force: boolean?)
 			self._onReloadStateChanged
 		)
 	end
+
+	self:_applyAimState()
 end
 
 function Viewmodel:PrimaryFire()
@@ -222,6 +291,10 @@ end
 
 function Viewmodel:Reload()
 	if self._weapon then
+		if self._aimRequested then
+			self:SetAiming(false)
+		end
+
 		self._weapon:Reload()
 	end
 end
@@ -230,6 +303,24 @@ function Viewmodel:Parry()
 	if self._weapon then
 		self._weapon:Parry()
 	end
+end
+
+function Viewmodel:SetAiming(isAiming: boolean)
+	if self._aimRequested == isAiming then
+		return
+	end
+
+	self._aimRequested = isAiming
+	self:_applyAimState()
+end
+
+function Viewmodel:CanAim(): boolean
+	local weapon = self._weapon
+	if not weapon then
+		return false
+	end
+
+	return weapon:CanAim()
 end
 
 function Viewmodel:Destroy()
@@ -256,6 +347,8 @@ function Viewmodel:Destroy()
 		self._weapon:Destroy()
 		self._weapon = nil
 	end
+
+	self._sightsAttachment = nil
 
 	if self._vmModel then
 		self._vmModel:Destroy()

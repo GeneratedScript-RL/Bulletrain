@@ -13,7 +13,10 @@ return {
 		Pellets = 8,
 		Range = 400,
 		PelletDamage = 12,
+		FireCooldown = 0.9,
 		SpreadDegrees = 6,
+		AimSpreadMultiplier = 0.8,
+		AimSightsDistance = 4,
 		MuzzleVelocity = 1500,
 	},
 	Knife = {

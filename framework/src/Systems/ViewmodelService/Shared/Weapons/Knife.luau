@@ -150,6 +150,13 @@ end
 function Knife:Reload()
 end
 
+function Knife:CanAim(): boolean
+	return false
+end
+
+function Knife:SetAiming(_isAiming: boolean)
+end
+
 function Knife:Destroy()
 	if self._runConnection then
 		self._runConnection:Disconnect()

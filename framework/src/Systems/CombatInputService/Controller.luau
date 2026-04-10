@@ -22,6 +22,7 @@ local ACTION_SWITCH = "Combat_Switch"
 local ACTION_INSPECT = "Combat_Inspect"
 local ACTION_RELOAD = "Combat_Reload"
 local ACTION_PARRY = "Combat_Parry"
+local ACTION_AIM = "Combat_Aim"
 
 local function onFire(_actionName: string, inputState: Enum.UserInputState)
 	if inputState == Enum.UserInputState.Begin then
@@ -83,6 +84,18 @@ local function onParry(_actionName: string, inputState: Enum.UserInputState)
 	return Enum.ContextActionResult.Sink
 end
 
+local function onAim(_actionName: string, inputState: Enum.UserInputState)
+	if inputState == Enum.UserInputState.Begin then
+		if viewmodelController:CanAim() then
+			viewmodelController:SetAiming(true)
+		end
+	elseif inputState == Enum.UserInputState.End or inputState == Enum.UserInputState.Cancel then
+		viewmodelController:SetAiming(false)
+	end
+
+	return Enum.ContextActionResult.Sink
+end
+
 function CombatInputController:Enable()
 	if self._enabled then
 		return
@@ -96,6 +109,7 @@ function CombatInputController:Enable()
 	ContextActionService:BindAction(ACTION_INSPECT, onInspect, false, Enum.KeyCode.T)
 	ContextActionService:BindAction(ACTION_RELOAD, onReload, false, Enum.KeyCode.R)
 	ContextActionService:BindAction(ACTION_PARRY, onParry, false, Enum.KeyCode.F)
+	ContextActionService:BindAction(ACTION_AIM, onAim, false, Enum.UserInputType.MouseButton2)
 end
 
 function CombatInputController:Disable()
@@ -104,6 +118,7 @@ function CombatInputController:Disable()
 	end
 
 	self._enabled = false
+	viewmodelController:SetAiming(false)
 	ContextActionService:UnbindAction(ACTION_FIRE)
 	ContextActionService:UnbindAction(ACTION_EQUIP1)
 	ContextActionService:UnbindAction(ACTION_EQUIP2)
@@ -111,6 +126,7 @@ function CombatInputController:Disable()
 	ContextActionService:UnbindAction(ACTION_INSPECT)
 	ContextActionService:UnbindAction(ACTION_RELOAD)
 	ContextActionService:UnbindAction(ACTION_PARRY)
+	ContextActionService:UnbindAction(ACTION_AIM)
 end
 
 function CombatInputController:Init()

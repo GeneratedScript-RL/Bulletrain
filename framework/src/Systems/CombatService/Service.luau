@@ -37,6 +37,7 @@ CombatService._lastDamager = {} :: { [Humanoid]: Player }
 CombatService._lastDamageWeapon = {} :: { [Humanoid]: string }
 CombatService._damageLog = {} :: { [Humanoid]: { [Player]: number } }
 CombatService._parryingPlayers = {} :: { [Player]: ParryState }
+CombatService._lastShotgunFireAt = {} :: { [Player]: number }
 
 local function isAliveCharacter(character: Model?): boolean
 	if not character then
@@ -105,6 +106,11 @@ local function applySpread(direction: Vector3, spreadDegrees: number): Vector3
 	local pitch = (math.random() - 0.5) * 2 * spreadRadians
 	local base = CFrame.lookAt(Vector3.zero, direction)
 	return (base * CFrame.Angles(pitch, yaw, 0)).LookVector
+end
+
+local function getShotgunSpreadDegrees(isAiming: boolean): number
+	local spreadMultiplier = if isAiming then Config.Shotgun.AimSpreadMultiplier else 1
+	return Config.Shotgun.SpreadDegrees * spreadMultiplier
 end
 
 function CombatService:_tagDamage(victimHumanoid: Humanoid, attacker: Player, weaponName: string)
@@ -188,7 +194,18 @@ function CombatService:_wireCharacter(character: Model, trove: Types.Trove)
 	end))
 end
 
-function CombatService:_fireShotgun(player: Player, origin: Vector3, direction: Vector3)
+function CombatService:_canFireShotgun(player: Player): boolean
+	local now = os.clock()
+	local lastFireTime = self._lastShotgunFireAt[player]
+	if lastFireTime and (now - lastFireTime) < Config.Shotgun.FireCooldown then
+		return false
+	end
+
+	self._lastShotgunFireAt[player] = now
+	return true
+end
+
+function CombatService:_fireShotgun(player: Player, origin: Vector3, direction: Vector3, isAiming: boolean?)
 	local character = player.Character
 	if not isAliveCharacter(character) then
 		return
@@ -198,10 +215,15 @@ function CombatService:_fireShotgun(player: Player, origin: Vector3, direction: 
 		return
 	end
 
+	if not self:_canFireShotgun(player) then
+		return
+	end
+
 	local params = makeParamsForShooter(character :: Model)
+	local spreadDegrees = getShotgunSpreadDegrees(isAiming == true)
 
 	for _ = 1, Config.Shotgun.Pellets do
-		local rayDirection = applySpread(direction, Config.Shotgun.SpreadDegrees)
+		local rayDirection = applySpread(direction, spreadDegrees)
 		local result = workspace:Raycast(origin, rayDirection.Unit * Config.Shotgun.Range, params)
 		if result then
 			local humanoid = getHumanoidFromHit(result.Instance)
@@ -240,7 +262,7 @@ function CombatService:_fireShotgun(player: Player, origin: Vector3, direction: 
 		end
 	end
 
-	self.Client.ReplicateShotgunBullet:FireAll(player.UserId, origin, direction)
+	self.Client.ReplicateShotgunBullet:FireAll(player.UserId, origin, direction, isAiming == true)
 end
 
 function CombatService:_knifeSwing(player: Player)
@@ -275,8 +297,8 @@ function CombatService:Init()
 	dailyTaskService = framework.GetService("DailyTaskService")
 	rewardService = framework.GetService("RewardService")
 
-	self.Client.ShotgunFire:Connect(function(player: Player, origin: Vector3, direction: Vector3)
-		self:_fireShotgun(player, origin, direction)
+	self.Client.ShotgunFire:Connect(function(player: Player, origin: Vector3, direction: Vector3, isAiming: boolean?)
+		self:_fireShotgun(player, origin, direction, isAiming)
 	end)
 
 	self.Client.KnifeSwing:Connect(function(player: Player)
@@ -300,6 +322,7 @@ function CombatService:Init()
 
 	framework.OnPlayerRemoving(function(player: Player)
 		self._parryingPlayers[player] = nil
+		self._lastShotgunFireAt[player] = nil
 	end)
 end
 

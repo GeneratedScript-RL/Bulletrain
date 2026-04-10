@@ -36,6 +36,11 @@ local function applySpread(direction: Vector3, spreadDegrees: number): Vector3
 	return (base * CFrame.Angles(pitch, yaw, 0)).LookVector
 end
 
+local function getShotgunSpreadDegrees(isAiming: boolean): number
+	local spreadMultiplier = if isAiming then CombatConfig.Shotgun.AimSpreadMultiplier else 1
+	return CombatConfig.Shotgun.SpreadDegrees * spreadMultiplier
+end
+
 function BulletReplicationController:Init()
 	combatService = framework.GetService("CombatService")
 end
@@ -73,7 +78,12 @@ function BulletReplicationController:Start()
 	end)
 
 	local localPlayer = Players.LocalPlayer
-	combatService.ReplicateShotgunBullet:Connect(function(shooterUserId: number, origin: Vector3, direction: Vector3)
+	combatService.ReplicateShotgunBullet:Connect(function(
+		shooterUserId: number,
+		origin: Vector3,
+		direction: Vector3,
+		isAiming: boolean?
+	)
 		if shooterUserId == localPlayer.UserId then
 			return
 		end
@@ -92,9 +102,10 @@ function BulletReplicationController:Start()
 		end
 
 		params.FilterDescendantsInstances = filterList
+		local spreadDegrees = getShotgunSpreadDegrees(isAiming == true)
 
 		for _ = 1, CombatConfig.Shotgun.Pellets do
-			local rayDirection = applySpread(direction, CombatConfig.Shotgun.SpreadDegrees)
+			local rayDirection = applySpread(direction, spreadDegrees)
 			caster:Fire(origin, rayDirection, CombatConfig.Shotgun.MuzzleVelocity, behavior)
 		end
 	end)

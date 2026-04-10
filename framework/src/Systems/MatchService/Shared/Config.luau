@@ -1,7 +1,7 @@
 --!strict
 
 return {
-	IntermissionDuration = 10,
+	IntermissionDuration = 3,
 	MatchDuration = 180,
 	EndDuration = 8,
 	KillLimit = 100000,
