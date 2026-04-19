@@ -17,6 +17,7 @@ local SHELL_CAPACITY = 6
 local DEFAULT_RELOAD_PHASE_DURATION = 0.15
 
 type ReloadStateChanged = (isReloading: boolean, progress: number, tweenDuration: number?) -> ()
+type FireSucceeded = () -> ()
 
 local function getTrackPlaybackDuration(track: AnimationTrack?): number
 	if not track then
@@ -106,7 +107,8 @@ function Shotgun.new(
 	viewmodel: Model,
 	animationController: any,
 	combatService: any,
-	onReloadStateChanged: ReloadStateChanged?
+	onReloadStateChanged: ReloadStateChanged?,
+	onFireSucceeded: FireSucceeded?
 )
 	local self = setmetatable({}, Shotgun)
 	self._player = localPlayer
@@ -114,6 +116,7 @@ function Shotgun.new(
 	self._animationController = animationController
 	self._combatService = combatService
 	self._onReloadStateChanged = onReloadStateChanged
+	self._onFireSucceeded = onFireSucceeded
 	self._caster = FastCast.new()
 	self._behavior = FastCast.newBehavior()
 	self._behavior.MaxDistance = CombatConfig.Shotgun.Range
@@ -333,6 +336,9 @@ function Shotgun:PrimaryFire()
 	end
 
 	self._combatService.ShotgunFire:Fire(origin, direction, isAiming)
+	if self._onFireSucceeded then
+		self._onFireSucceeded()
+	end
 
 	local viewmodelAnimation = nil :: AnimationTrack?
 	local avatarFireTrack = nil :: AnimationTrack?

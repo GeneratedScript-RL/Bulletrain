@@ -8,6 +8,7 @@ Knife.__index = Knife
 Knife.Name = "Knife"
 
 local PARRY_COOLDOWN = 2
+local RUN_ANIMATION_SPEED = 0.5
 
 function Knife.new(localPlayer: Player, _camera: Camera, viewmodel: Model, animationController: any, combatService: any)
 	local self = setmetatable({}, Knife)
@@ -96,10 +97,12 @@ function Knife:_updateRunAnimation()
 		if not self.RunTrack.IsPlaying then
 			self.RunTrack:Play()
 		end
+		self.RunTrack:AdjustSpeed(RUN_ANIMATION_SPEED)
 
 		if not self.RunTrackAvatar.IsPlaying then
 			self.RunTrackAvatar:Play()
 		end
+		self.RunTrackAvatar:AdjustSpeed(RUN_ANIMATION_SPEED)
 	else
 		self.RunTrack:Stop()
 		self.RunTrackAvatar:Stop()

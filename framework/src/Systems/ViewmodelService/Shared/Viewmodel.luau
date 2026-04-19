@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 
 local root = script.Parent.Parent.Parent.Parent
 local CombatConfig = require(root.Systems.CombatService.Shared.Config)
+local Spring = require(root.Libraries.Spring.Spring)
 local Shotgun = require(script.Parent.Weapons.Shotgun)
 local Knife = require(script.Parent.Weapons.Knife)
 
@@ -25,6 +26,8 @@ Viewmodel.__index = Viewmodel
 type ReloadStateChanged = (isReloading: boolean, progress: number, tweenDuration: number?) -> ()
 
 local DEFAULT_VIEWMODEL_ROTATION = CFrame.Angles(math.rad(180), 0, math.rad(180))
+local RENDER_STEP_NAME = "Bulletrain_Viewmodel"
+local RECOIL_RENDER_PRIORITY = Enum.RenderPriority.Camera.Value + 1
 
 local function getAssetsFolder(): Folder?
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
@@ -46,6 +49,94 @@ local function setModelNoCollide(model: Model)
 	end
 end
 
+local function getArmSide(partName: string): string?
+	local normalized = string.lower(partName):gsub("[%s_%-]", "")
+	if normalized == "leftarm"
+		or normalized == "leftupperarm"
+		or normalized == "leftlowerarm"
+		or normalized == "lefthand"
+		or normalized == "larm"
+		or normalized == "lhand"
+		or string.match(normalized, "^left.*arm$") ~= nil
+		or string.match(normalized, "^left.*hand$") ~= nil
+	then
+		return "Left"
+	end
+
+	if normalized == "rightarm"
+		or normalized == "rightupperarm"
+		or normalized == "rightlowerarm"
+		or normalized == "righthand"
+		or normalized == "rarm"
+		or normalized == "rhand"
+		or string.match(normalized, "^right.*arm$") ~= nil
+		or string.match(normalized, "^right.*hand$") ~= nil
+	then
+		return "Right"
+	end
+
+	return nil
+end
+
+local function findCharacterPartColor(character: Model, names: { string }): Color3?
+	for _, partName in names do
+		local instance = character:FindFirstChild(partName, true)
+		if instance and instance:IsA("BasePart") then
+			return instance.Color
+		end
+	end
+
+	return nil
+end
+
+local function getCharacterArmColor(character: Model, side: string): Color3?
+	local bodyColors = character:FindFirstChildOfClass("BodyColors") :: BodyColors?
+	if bodyColors then
+		return if side == "Left" then bodyColors.LeftArmColor3 else bodyColors.RightArmColor3
+	end
+
+	if side == "Left" then
+		return findCharacterPartColor(character, {
+			"Left Arm",
+			"LeftUpperArm",
+			"LeftLowerArm",
+			"LeftHand",
+		})
+	end
+
+	return findCharacterPartColor(character, {
+		"Right Arm",
+		"RightUpperArm",
+		"RightLowerArm",
+		"RightHand",
+	})
+end
+
+local function clearCharacterAppearanceInstances(model: Model)
+	for _, child in model:GetChildren() do
+		if child:IsA("BodyColors") or child:IsA("Shirt") or child:IsA("ShirtGraphic") then
+			child:Destroy()
+		end
+	end
+end
+
+local function cloneCharacterAppearanceInstances(character: Model, model: Model)
+	local bodyColors = character:FindFirstChildOfClass("BodyColors") :: BodyColors?
+	if bodyColors then
+		bodyColors:Clone().Parent = model
+	end
+
+	local shirt = character:FindFirstChildOfClass("Shirt")
+	if shirt then
+		shirt:Clone().Parent = model
+	end
+
+	local shirtGraphic = character:FindFirstChildOfClass("ShirtGraphic")
+	if shirtGraphic then
+		shirtGraphic:Clone().Parent = model
+	end
+end
+
 function Viewmodel.new(
 	localPlayer: Player,
 	camera: Camera,
@@ -61,12 +152,19 @@ function Viewmodel.new(
 	self._onReloadStateChanged = onReloadStateChanged
 	self._vmModel = nil :: Model?
 	self._weapon = nil :: Weapon?
-	self._connection = nil :: RBXScriptConnection?
+	self._renderStepBound = false
 	self._equippedKnifeSkinConnection = nil :: RBXScriptConnection?
 	self._equippedShotgunSkinConnection = nil :: RBXScriptConnection?
+	self._characterAddedConnection = nil :: RBXScriptConnection?
+	self._characterAppearanceLoadedConnection = nil :: RBXScriptConnection?
 	self._sightsAttachment = nil :: Attachment?
 	self._aimRequested = false
 	self._isAiming = false
+	self._cameraRecoilSpring = Spring.new(
+		Vector2.zero,
+		CombatConfig.Shotgun.CameraRecoil.Damping,
+		CombatConfig.Shotgun.CameraRecoil.Speed
+	)
 
 	self._equippedKnifeSkinConnection = localPlayer:GetAttributeChangedSignal("EquippedKnifeSkin"):Connect(function()
 		local weapon = self._weapon
@@ -80,6 +178,16 @@ function Viewmodel.new(
 		if weapon and weapon.Name == "Shotgun" then
 			self:Equip("Shotgun", true)
 		end
+	end)
+
+	self._characterAddedConnection = localPlayer.CharacterAdded:Connect(function()
+		task.defer(function()
+			self:_applyCharacterAppearance()
+		end)
+	end)
+
+	self._characterAppearanceLoadedConnection = localPlayer.CharacterAppearanceLoaded:Connect(function()
+		self:_applyCharacterAppearance()
 	end)
 
 	return self
@@ -118,6 +226,31 @@ end
 function Viewmodel:_resolveAimState(): boolean
 	local weapon = self._weapon
 	return self._aimRequested and weapon ~= nil and weapon:CanAim()
+end
+
+function Viewmodel:_applyCharacterAppearance()
+	local vmModel = self._vmModel
+	local character = self._player.Character
+	if not vmModel or not character then
+		return
+	end
+
+	clearCharacterAppearanceInstances(vmModel)
+	cloneCharacterAppearanceInstances(character, vmModel)
+
+	local leftArmColor = getCharacterArmColor(character, "Left")
+	local rightArmColor = getCharacterArmColor(character, "Right")
+
+	for _, descendant in vmModel:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			local side = getArmSide(descendant.Name)
+			if side == "Left" and leftArmColor then
+				descendant.Color = leftArmColor
+			elseif side == "Right" and rightArmColor then
+				descendant.Color = rightArmColor
+			end
+		end
+	end
 end
 
 function Viewmodel:_applyAimState()
@@ -197,6 +330,7 @@ function Viewmodel:_ensureModelForWeapon(weaponName: string)
 	clone:PivotTo(self:_getDefaultPivot())
 	self._vmModel = clone
 	self:_refreshSightsAttachment()
+	self:_applyCharacterAppearance()
 end
 
 function Viewmodel:GetAnimationTarget(): Instance?
@@ -223,11 +357,14 @@ function Viewmodel:GetEquippedWeaponName(): string?
 end
 
 function Viewmodel:Start()
-	if self._connection then
+	if self._renderStepBound then
 		return
 	end
 
-	self._connection = RunService.RenderStepped:Connect(function()
+	self._renderStepBound = true
+	RunService:BindToRenderStep(RENDER_STEP_NAME, RECOIL_RENDER_PRIORITY, function()
+		self:_updateCameraRecoil()
+
 		if self._vmModel then
 			local targetPivot = self:_getDefaultPivot()
 			if self._isAiming then
@@ -240,6 +377,28 @@ function Viewmodel:Start()
 			self._vmModel:PivotTo(targetPivot)
 		end
 	end)
+end
+
+function Viewmodel:_updateCameraRecoil()
+	local recoilOffset = self._cameraRecoilSpring.Position
+	if recoilOffset.Magnitude <= 0 then
+		return
+	end
+
+	self._camera.CFrame = self._camera.CFrame * CFrame.Angles(recoilOffset.X, recoilOffset.Y, 0)
+end
+
+function Viewmodel:_applyShotgunRecoil()
+	local recoilConfig = CombatConfig.Shotgun.CameraRecoil
+	local multiplier = if self._isAiming then recoilConfig.AimMultiplier else 1
+	local pitch = math.rad(recoilConfig.PitchDegrees) * multiplier
+	local yaw = math.rad((math.random() - 0.5) * 2 * recoilConfig.YawDegrees) * multiplier
+	local recoilSpring = self._cameraRecoilSpring
+
+	recoilSpring.Damping = recoilConfig.Damping
+	recoilSpring.Speed = recoilConfig.Speed
+	recoilSpring.Target = Vector2.zero
+	recoilSpring.Position = recoilSpring.Position + Vector2.new(pitch, yaw)
 end
 
 function Viewmodel:Equip(weaponName: string, force: boolean?)
@@ -270,7 +429,10 @@ function Viewmodel:Equip(weaponName: string, force: boolean?)
 			self._vmModel,
 			self._animationController,
 			self._combatService,
-			self._onReloadStateChanged
+			self._onReloadStateChanged,
+			function()
+				self:_applyShotgunRecoil()
+			end
 		)
 	end
 
@@ -328,9 +490,9 @@ function Viewmodel:Destroy()
 		self._onReloadStateChanged(false, 0, 0)
 	end
 
-	if self._connection then
-		self._connection:Disconnect()
-		self._connection = nil
+	if self._renderStepBound then
+		RunService:UnbindFromRenderStep(RENDER_STEP_NAME)
+		self._renderStepBound = false
 	end
 
 	if self._equippedKnifeSkinConnection then
@@ -341,6 +503,16 @@ function Viewmodel:Destroy()
 	if self._equippedShotgunSkinConnection then
 		self._equippedShotgunSkinConnection:Disconnect()
 		self._equippedShotgunSkinConnection = nil
+	end
+
+	if self._characterAddedConnection then
+		self._characterAddedConnection:Disconnect()
+		self._characterAddedConnection = nil
+	end
+
+	if self._characterAppearanceLoadedConnection then
+		self._characterAppearanceLoadedConnection:Disconnect()
+		self._characterAppearanceLoadedConnection = nil
 	end
 
 	if self._weapon then

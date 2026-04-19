@@ -18,6 +18,13 @@ return {
 		AimSpreadMultiplier = 0.8,
 		AimSightsDistance = 4,
 		MuzzleVelocity = 1500,
+		CameraRecoil = {
+			PitchDegrees = 4.5,
+			YawDegrees = 1.25,
+			AimMultiplier = 0.65,
+			Damping = 0.45,
+			Speed = 18,
+		},
 	},
 	Knife = {
 		Range = 7,
