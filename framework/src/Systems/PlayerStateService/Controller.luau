@@ -1,6 +1,7 @@
 --!strict
 
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 
 local root = script.Parent.Parent.Parent
 local Types = require(root.Types)
@@ -17,6 +18,7 @@ local PlayerStateController = framework.CreateController({
 })
 
 PlayerStateController._currentState = nil :: string?
+PlayerStateController._preCombatMouseIconEnabled = nil :: boolean?
 
 function PlayerStateController:_applyState(state: string)
 	if self._currentState == state then
@@ -27,11 +29,20 @@ function PlayerStateController:_applyState(state: string)
 
 	local player = Players.LocalPlayer
 	if state == "Combat" then
+		self._preCombatMouseIconEnabled = UserInputService.MouseIconEnabled
+		UserInputService.MouseIconEnabled = false
 		player.CameraMode = Enum.CameraMode.LockFirstPerson
 		viewmodelController:Enable()
 		combatInputController:Enable()
 		slideController:Enable()
 	else
+		if self._preCombatMouseIconEnabled ~= nil then
+			UserInputService.MouseIconEnabled = self._preCombatMouseIconEnabled
+			self._preCombatMouseIconEnabled = nil
+		else
+			UserInputService.MouseIconEnabled = true
+		end
+
 		player.CameraMode = Enum.CameraMode.Classic
 		slideController:Disable()
 		combatInputController:Disable()

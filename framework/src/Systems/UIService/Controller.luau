@@ -188,7 +188,7 @@ local function loadFrame(frame: Instance)
 	destroyFrameRecord(frameName)
 
 	if componentModule then
-		componentModule.init(frame)
+		component = componentModule.init(frame)
 	end
 
 	frameRecords[frameName] = {

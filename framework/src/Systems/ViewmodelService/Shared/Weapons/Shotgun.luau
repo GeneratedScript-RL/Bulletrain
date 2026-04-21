@@ -342,14 +342,10 @@ function Shotgun:PrimaryFire()
 
 	local viewmodelAnimation = nil :: AnimationTrack?
 	local avatarFireTrack = nil :: AnimationTrack?
-	if not isAiming then
-		viewmodelAnimation = self._animationController:PlayAnimation(self.Animator, "ShotgunFire", Enum.AnimationPriority.Action3)
-		self.FireTrack = viewmodelAnimation
-		avatarFireTrack = self._animationController:PlayAnimationToAvatar("ShotgunFire", Enum.AnimationPriority.Action3)
-		self.FireTrackAvatar = avatarFireTrack
-	else
-		self:_stopNonIdleAnimations()
-	end
+	viewmodelAnimation = self._animationController:PlayAnimation(self.Animator, "ShotgunFire", Enum.AnimationPriority.Action3)
+	self.FireTrack = viewmodelAnimation
+	avatarFireTrack = self._animationController:PlayAnimationToAvatar("ShotgunFire", Enum.AnimationPriority.Action3)
+	self.FireTrackAvatar = avatarFireTrack
 
 	task.defer(function()
 		if viewmodelAnimation then

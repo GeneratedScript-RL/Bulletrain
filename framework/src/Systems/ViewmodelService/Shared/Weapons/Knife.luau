@@ -8,7 +8,7 @@ Knife.__index = Knife
 Knife.Name = "Knife"
 
 local PARRY_COOLDOWN = 2
-local RUN_ANIMATION_SPEED = 0.5
+local RUN_ANIMATION_SPEED = 0.6
 
 function Knife.new(localPlayer: Player, _camera: Camera, viewmodel: Model, animationController: any, combatService: any)
 	local self = setmetatable({}, Knife)

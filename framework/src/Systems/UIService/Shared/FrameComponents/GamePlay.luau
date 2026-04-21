@@ -1,6 +1,7 @@
 --!strict
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local root = script.Parent.Parent.Parent.Parent.Parent
@@ -14,6 +15,22 @@ local MAX_TOP_PLAYERS = 5
 local MAX_KILLFEED_ENTRIES = 4
 local KILLFEED_ENTRY_LIFETIME = 6
 local ELIMINATION_BAR_LIFETIME = 2.5
+local CROSSHAIR_DOT_SIZE = 4
+local CROSSHAIR_THICKNESS = 2
+local CROSSHAIR_MIN_GAP = 8
+local CROSSHAIR_MAX_GAP = 30
+local CROSSHAIR_MIN_LENGTH = 8
+local CROSSHAIR_MAX_LENGTH = 18
+local CROSSHAIR_SPEED_FOR_MAX_SPREAD = 36
+local CROSSHAIR_SHOT_BLOOM_GAP = 18
+local CROSSHAIR_SHOT_BLOOM_LENGTH = 6
+local CROSSHAIR_SHOT_BLOOM_DECAY = 7
+local CROSSHAIR_AIM_CONVERGE_SPEED = 14
+local CROSSHAIR_AIM_FADE_START = 0.72
+local CROSSHAIR_COLOR = Color3.fromRGB(245, 245, 245)
+local CROSSHAIR_SHADOW_COLOR = Color3.fromRGB(16, 18, 20)
+local CROSSHAIR_TRANSPARENCY = 0.08
+local CROSSHAIR_SHADOW_TRANSPARENCY = 0.45
 
 type WeaponSlotState = {
 	Frame: GuiObject,
@@ -35,6 +52,17 @@ type KillFeedEntry = {
 type RankedPlayer = {
 	Player: Player,
 	Kills: number,
+}
+
+type CrosshairState = {
+	Root: Frame,
+	Dot: Frame,
+	Top: Frame,
+	Bottom: Frame,
+	Left: Frame,
+	Right: Frame,
+	ShotBloom: number,
+	AimAlpha: number,
 }
 
 type GamePlayComponent = {
@@ -67,6 +95,7 @@ type GamePlayComponent = {
 	DynamicTopEntries: { GuiObject },
 	KillCounts: { [number]: number },
 	ThumbnailCache: { [number]: string },
+	Crosshair: CrosshairState?,
 	_characterTrove: Types.Trove?,
 	_destroyed: boolean,
 	_trove: Types.Trove,
@@ -76,6 +105,167 @@ type GamePlayComponent = {
 local GamePlay = {}
 
 local localPlayer = Players.LocalPlayer
+
+local function getLerpAlpha(speed: number, deltaTime: number): number
+	if speed <= 0 then
+		return 1
+	end
+
+	return math.clamp(1 - math.exp(-speed * math.max(deltaTime, 0)), 0, 1)
+end
+
+local function addCrosshairStroke(guiObject: GuiObject)
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = CROSSHAIR_SHADOW_COLOR
+	stroke.Transparency = CROSSHAIR_SHADOW_TRANSPARENCY
+	stroke.Thickness = 1
+	stroke.Parent = guiObject
+end
+
+local function createCrosshairPart(name: string, parent: Instance): Frame
+	local part = Instance.new("Frame")
+	part.Name = name
+	part.BackgroundColor3 = CROSSHAIR_COLOR
+	part.BackgroundTransparency = CROSSHAIR_TRANSPARENCY
+	part.BorderSizePixel = 0
+	part.ZIndex = 101
+	part.Parent = parent
+	addCrosshairStroke(part)
+	return part
+end
+
+local function createCrosshair(gamePlayFrame: GuiObject): CrosshairState
+	local existingCrosshair = gamePlayFrame:FindFirstChild("DynamicCrosshair")
+	if existingCrosshair then
+		existingCrosshair:Destroy()
+	end
+
+	local root = Instance.new("Frame")
+	root.Name = "DynamicCrosshair"
+	root.AnchorPoint = Vector2.new(0.5, 0.5)
+	root.BackgroundTransparency = 1
+	root.BorderSizePixel = 0
+	root.Position = UDim2.fromScale(0.5, 0.5)
+	root.Size = UDim2.fromOffset(0, 0)
+	root.ZIndex = 100
+	root.Parent = gamePlayFrame
+
+	local dot = createCrosshairPart("Dot", root)
+	dot.AnchorPoint = Vector2.new(0.5, 0.5)
+	dot.Position = UDim2.fromOffset(0, 0)
+	dot.Size = UDim2.fromOffset(CROSSHAIR_DOT_SIZE, CROSSHAIR_DOT_SIZE)
+
+	local dotCorner = Instance.new("UICorner")
+	dotCorner.CornerRadius = UDim.new(1, 0)
+	dotCorner.Parent = dot
+
+	local top = createCrosshairPart("Top", root)
+	top.AnchorPoint = Vector2.new(0.5, 1)
+
+	local bottom = createCrosshairPart("Bottom", root)
+	bottom.AnchorPoint = Vector2.new(0.5, 0)
+
+	local left = createCrosshairPart("Left", root)
+	left.AnchorPoint = Vector2.new(1, 0.5)
+
+	local right = createCrosshairPart("Right", root)
+	right.AnchorPoint = Vector2.new(0, 0.5)
+
+	return {
+		Root = root,
+		Dot = dot,
+		Top = top,
+		Bottom = bottom,
+		Left = left,
+		Right = right,
+		ShotBloom = 0,
+		AimAlpha = 0,
+	}
+end
+
+local function getLocalHorizontalSpeed(): number
+	local character = localPlayer.Character
+	if not character then
+		return 0
+	end
+
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	if not rootPart or not rootPart:IsA("BasePart") then
+		return 0
+	end
+
+	return (rootPart.AssemblyLinearVelocity * Vector3.new(1, 0, 1)).Magnitude
+end
+
+local function pulseCrosshair(crosshair: CrosshairState)
+	crosshair.ShotBloom = 1
+	crosshair.Root:SetAttribute("ShotBloom", crosshair.ShotBloom)
+end
+
+local function setCrosshairPartTransparency(part: Frame, backgroundTransparency: number, strokeTransparency: number)
+	part.BackgroundTransparency = backgroundTransparency
+
+	local stroke = part:FindFirstChildWhichIsA("UIStroke")
+	if stroke then
+		stroke.Transparency = strokeTransparency
+	end
+end
+
+local function updateCrosshair(crosshair: CrosshairState, deltaTime: number?, isAiming: boolean)
+	local targetAimAlpha = if isAiming then 1 else 0
+	if deltaTime then
+		local aimLerpAlpha = getLerpAlpha(CROSSHAIR_AIM_CONVERGE_SPEED, deltaTime)
+		crosshair.AimAlpha = math.clamp(crosshair.AimAlpha + (targetAimAlpha - crosshair.AimAlpha) * aimLerpAlpha, 0, 1)
+	else
+		crosshair.AimAlpha = targetAimAlpha
+	end
+
+	local speed = getLocalHorizontalSpeed()
+	local spreadAlpha = math.clamp(speed / CROSSHAIR_SPEED_FOR_MAX_SPREAD, 0, 1)
+	local shotBloom = crosshair.ShotBloom
+	local aimAlpha = crosshair.AimAlpha
+	local hideAlpha = math.clamp((aimAlpha - CROSSHAIR_AIM_FADE_START) / (1 - CROSSHAIR_AIM_FADE_START), 0, 1)
+	local baseGap =
+		CROSSHAIR_MIN_GAP
+		+ (CROSSHAIR_MAX_GAP - CROSSHAIR_MIN_GAP) * spreadAlpha
+		+ CROSSHAIR_SHOT_BLOOM_GAP * shotBloom
+	local baseLength =
+		CROSSHAIR_MIN_LENGTH
+		+ (CROSSHAIR_MAX_LENGTH - CROSSHAIR_MIN_LENGTH) * spreadAlpha
+		+ CROSSHAIR_SHOT_BLOOM_LENGTH * shotBloom
+	local gap = math.floor(baseGap * (1 - aimAlpha) + 0.5)
+	local length = math.floor(baseLength * (1 - hideAlpha) + 0.5)
+	local backgroundTransparency = CROSSHAIR_TRANSPARENCY + (1 - CROSSHAIR_TRANSPARENCY) * hideAlpha
+	local strokeTransparency = CROSSHAIR_SHADOW_TRANSPARENCY + (1 - CROSSHAIR_SHADOW_TRANSPARENCY) * hideAlpha
+
+	crosshair.Root:SetAttribute("Speed", speed)
+	crosshair.Root:SetAttribute("SpreadAlpha", spreadAlpha)
+	crosshair.Root:SetAttribute("ShotBloom", shotBloom)
+	crosshair.Root:SetAttribute("AimAlpha", aimAlpha)
+	crosshair.Root:SetAttribute("HideAlpha", hideAlpha)
+
+	setCrosshairPartTransparency(crosshair.Dot, backgroundTransparency, strokeTransparency)
+	setCrosshairPartTransparency(crosshair.Top, backgroundTransparency, strokeTransparency)
+	setCrosshairPartTransparency(crosshair.Bottom, backgroundTransparency, strokeTransparency)
+	setCrosshairPartTransparency(crosshair.Left, backgroundTransparency, strokeTransparency)
+	setCrosshairPartTransparency(crosshair.Right, backgroundTransparency, strokeTransparency)
+
+	crosshair.Top.Position = UDim2.fromOffset(0, -gap)
+	crosshair.Top.Size = UDim2.fromOffset(CROSSHAIR_THICKNESS, length)
+
+	crosshair.Bottom.Position = UDim2.fromOffset(0, gap)
+	crosshair.Bottom.Size = UDim2.fromOffset(CROSSHAIR_THICKNESS, length)
+
+	crosshair.Left.Position = UDim2.fromOffset(-gap, 0)
+	crosshair.Left.Size = UDim2.fromOffset(length, CROSSHAIR_THICKNESS)
+
+	crosshair.Right.Position = UDim2.fromOffset(gap, 0)
+	crosshair.Right.Size = UDim2.fromOffset(length, CROSSHAIR_THICKNESS)
+
+	if deltaTime and shotBloom > 0 then
+		crosshair.ShotBloom = math.max(shotBloom - deltaTime * CROSSHAIR_SHOT_BLOOM_DECAY, 0)
+	end
+end
 
 local function findTextLabel(container: Instance?, childName: string?): TextLabel?
 	if not container then
@@ -698,6 +888,7 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 	local shotgunSlot = createWeaponSlotState(gamePlayFrame:FindFirstChild("ShotgunSlot"))
 	local knifeSlot = createWeaponSlotState(gamePlayFrame:FindFirstChild("KnifeSlot"))
 	local killFeedImageLabel = findImageLabel(killFeedTemplate, "ImageLabel")
+	local crosshair = createCrosshair(gamePlayFrame)
 
 	local component: GamePlayComponent = {
 		Frame = gamePlayFrame,
@@ -729,11 +920,18 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 		DynamicTopEntries = {},
 		KillCounts = {},
 		ThumbnailCache = {},
+		Crosshair = crosshair,
 		_characterTrove = nil,
 		_destroyed = false,
 		_trove = trove,
 		Destroy = GamePlay.Destroy,
 	}
+
+	trove:Add(crosshair.Root)
+	updateCrosshair(crosshair, nil, viewmodelController:IsAiming())
+	trove:Connect(RunService.RenderStepped, function(deltaTime: number)
+		updateCrosshair(crosshair, deltaTime, viewmodelController:IsAiming())
+	end)
 
 	destroyChildrenWithPrefix(killFeedFrame, "DeathLog")
 
@@ -826,6 +1024,12 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 	if viewmodelController.ReloadChanged then
 		trove:Add(viewmodelController.ReloadChanged:Connect(function(isReloading: boolean, progress: number, tweenDuration: number)
 			setReloadBar(component, isReloading, progress, tweenDuration)
+		end))
+	end
+
+	if viewmodelController.ShotgunFired then
+		trove:Add(viewmodelController.ShotgunFired:Connect(function()
+			pulseCrosshair(crosshair)
 		end))
 	end
 

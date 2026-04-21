@@ -24,10 +24,19 @@ local Viewmodel = {}
 Viewmodel.__index = Viewmodel
 
 type ReloadStateChanged = (isReloading: boolean, progress: number, tweenDuration: number?) -> ()
+type ShotgunFired = () -> ()
 
 local DEFAULT_VIEWMODEL_ROTATION = CFrame.Angles(math.rad(180), 0, math.rad(180))
 local RENDER_STEP_NAME = "Bulletrain_Viewmodel"
 local RECOIL_RENDER_PRIORITY = Enum.RenderPriority.Camera.Value + 1
+
+local function getLerpAlpha(speed: number, deltaTime: number): number
+	if speed <= 0 then
+		return 1
+	end
+
+	return math.clamp(1 - math.exp(-speed * math.max(deltaTime, 0)), 0, 1)
+end
 
 local function getAssetsFolder(): Folder?
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
@@ -142,7 +151,8 @@ function Viewmodel.new(
 	camera: Camera,
 	animationController: any,
 	combatService: any,
-	onReloadStateChanged: ReloadStateChanged?
+	onReloadStateChanged: ReloadStateChanged?,
+	onShotgunFired: ShotgunFired?
 )
 	local self = setmetatable({}, Viewmodel)
 	self._player = localPlayer
@@ -150,6 +160,7 @@ function Viewmodel.new(
 	self._animationController = animationController
 	self._combatService = combatService
 	self._onReloadStateChanged = onReloadStateChanged
+	self._onShotgunFired = onShotgunFired
 	self._vmModel = nil :: Model?
 	self._weapon = nil :: Weapon?
 	self._renderStepBound = false
@@ -160,6 +171,7 @@ function Viewmodel.new(
 	self._sightsAttachment = nil :: Attachment?
 	self._aimRequested = false
 	self._isAiming = false
+	self._aimTransitionAlpha = 0
 	self._cameraRecoilSpring = Spring.new(
 		Vector2.zero,
 		CombatConfig.Shotgun.CameraRecoil.Damping,
@@ -327,10 +339,13 @@ function Viewmodel:_ensureModelForWeapon(weaponName: string)
 	clone.Name = "Viewmodel"
 	setModelNoCollide(clone)
 	clone.Parent = self._camera
-	clone:PivotTo(self:_getDefaultPivot())
+	local defaultPivot = self:_getDefaultPivot()
+	clone:PivotTo(defaultPivot)
 	self._vmModel = clone
 	self:_refreshSightsAttachment()
 	self:_applyCharacterAppearance()
+	self._aimTransitionAlpha = if self._isAiming then 1 else 0
+	clone:PivotTo(self:_getBlendedViewmodelPivot())
 end
 
 function Viewmodel:GetAnimationTarget(): Instance?
@@ -362,21 +377,45 @@ function Viewmodel:Start()
 	end
 
 	self._renderStepBound = true
-	RunService:BindToRenderStep(RENDER_STEP_NAME, RECOIL_RENDER_PRIORITY, function()
+	RunService:BindToRenderStep(RENDER_STEP_NAME, RECOIL_RENDER_PRIORITY, function(deltaTime: number)
 		self:_updateCameraRecoil()
 
 		if self._vmModel then
-			local targetPivot = self:_getDefaultPivot()
-			if self._isAiming then
-				local aimPivot = self:_getAimPivot()
-				if aimPivot then
-					targetPivot = aimPivot
-				end
-			end
-
-			self._vmModel:PivotTo(targetPivot)
+			self:_updateViewmodelPivot(deltaTime)
 		end
 	end)
+end
+
+function Viewmodel:_getBlendedViewmodelPivot(): CFrame
+	local defaultPivot = self:_getDefaultPivot()
+	local aimAlpha = self._aimTransitionAlpha
+	if aimAlpha <= 0 then
+		return defaultPivot
+	end
+
+	local aimPivot = self:_getAimPivot()
+	if not aimPivot then
+		return defaultPivot
+	end
+
+	return defaultPivot:Lerp(aimPivot, aimAlpha)
+end
+
+function Viewmodel:_updateViewmodelPivot(deltaTime: number)
+	local vmModel = self._vmModel
+	if not vmModel then
+		return
+	end
+
+	local targetAimAlpha = if self._isAiming then 1 else 0
+	local alpha = getLerpAlpha(CombatConfig.Shotgun.AimLerpSpeed, deltaTime)
+	self._aimTransitionAlpha = math.clamp(
+		self._aimTransitionAlpha + (targetAimAlpha - self._aimTransitionAlpha) * alpha,
+		0,
+		1
+	)
+
+	vmModel:PivotTo(self:_getBlendedViewmodelPivot())
 end
 
 function Viewmodel:_updateCameraRecoil()
@@ -432,6 +471,9 @@ function Viewmodel:Equip(weaponName: string, force: boolean?)
 			self._onReloadStateChanged,
 			function()
 				self:_applyShotgunRecoil()
+				if self._onShotgunFired then
+					self._onShotgunFired()
+				end
 			end
 		)
 	end
@@ -521,6 +563,7 @@ function Viewmodel:Destroy()
 	end
 
 	self._sightsAttachment = nil
+	self._aimTransitionAlpha = 0
 
 	if self._vmModel then
 		self._vmModel:Destroy()

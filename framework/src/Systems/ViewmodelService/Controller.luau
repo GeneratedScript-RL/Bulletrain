@@ -39,6 +39,7 @@ ViewmodelController._isAiming = false
 ViewmodelController._aimBlocked = false
 ViewmodelController.WeaponChanged = nil :: any
 ViewmodelController.ReloadChanged = nil :: any
+ViewmodelController.ShotgunFired = nil :: any
 
 function ViewmodelController:_setEquippedWeaponName(weaponName: string?)
 	if self._equippedWeaponName == weaponName then
@@ -101,6 +102,11 @@ function ViewmodelController:Enable()
 		self._combatService,
 		function(isReloading: boolean, progress: number, tweenDuration: number?)
 			self:_setReloadState(isReloading, progress, tweenDuration)
+		end,
+		function()
+			if self.ShotgunFired then
+				self.ShotgunFired:Fire()
+			end
 		end
 	)
 	self._vm:Equip("Shotgun")
@@ -246,6 +252,7 @@ function ViewmodelController:Init()
 	self._combatService = framework.GetService("CombatService")
 	self.WeaponChanged = Signal.new()
 	self.ReloadChanged = Signal.new()
+	self.ShotgunFired = Signal.new()
 end
 
 return ViewmodelController
