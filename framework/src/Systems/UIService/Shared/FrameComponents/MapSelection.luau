@@ -2,83 +2,63 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
 
 local root = script.Parent.Parent.Parent.Parent.Parent
 local Dependencies = require(root.Dependencies)
 local Types = require(root.Types)
 local framework: Types.frameworkClient = require(root) :: any
+local SharedConfig = require(root.Shared.common.Config)
 
 local MatchStates = require(script.Parent.Parent.Parent.Parent.MatchService.Shared.MatchStates)
 local Trove = Dependencies.GetTrove()
 
 local CONTAINER_MAP_PREFIX = "ContainerMap"
 local MAP_IMAGE_KEYS = { "PreviewImage", "MapImage", "Thumbnail", "Image", "Preview" }
+local VOTING_SCREEN_COUNT = SharedConfig.Match.MapVoteOptionCount
+local VOTING_SCREEN_GUI_NAME = "BulletrainVotingScreen"
+local VOTING_SCREEN_FACE = Enum.NormalId.Left
+local VOTING_SCREEN_CANVAS_SIZE = Vector2.new(960, 540)
+local HEADER_HEIGHT = 86
+local VOTE_HIGHLIGHT_COLOR = Color3.fromRGB(54, 255, 118)
+local VOTE_HIGHLIGHT_PULSE_TRANSPARENCY = 0.35
+local VOTE_HIGHLIGHT_REST_TRANSPARENCY = 0.9
+local VOTE_HIGHLIGHT_TWEEN_INFO = TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
-type MapCardRecord = {
-	Frame: GuiObject,
-	Button: GuiButton?,
-	Glow: GuiObject?,
-	CheckMark: GuiObject?,
-	NameLabel: TextLabel?,
-	ImageLabel: ImageLabel?,
-	VoteAvatarFrame: GuiObject?,
-	VoteAvatarImage: ImageLabel?,
-	BaseImage: string,
-	MapName: string,
+type ScreenRecord = {
+	Slot: number,
+	ScreenPart: BasePart,
+	SurfaceGui: SurfaceGui,
+	NameLabel: TextLabel,
+	ImageLabel: ImageLabel,
+	EmptyLabel: TextLabel,
+	HighlightFrame: Frame,
+	HighlightTween: Tween?,
 }
 
 type MapSelectionComponent = {
 	Frame: GuiObject,
-	TemplateCard: GuiObject?,
-	CardRecords: { MapCardRecord },
+	MatchService: any,
 	MapOptions: { string },
-	LocalVote: string,
 	MatchState: string,
-	PlayerThumbnail: string,
+	LocalVoteSlot: number?,
+	LocalVoteMap: string,
+	FallbackImage: string,
 	MapImageCache: { [string]: string },
-	_cardTrove: Types.Trove?,
+	ScreenRecords: { ScreenRecord },
+	VotingPads: { [number]: BasePart },
+	_warnedMissingScreens: boolean,
+	_warnedMissingPads: boolean,
+	_destroyed: boolean,
+	_screenTrove: Types.Trove?,
+	_padTrove: Types.Trove?,
 	_trove: Types.Trove,
 	Destroy: (self: MapSelectionComponent) -> (),
 }
 
 local MapSelection = {}
-
 local localPlayer = Players.LocalPlayer
-
-local function findButton(container: Instance?, childName: string?): GuiButton?
-	if not container then
-		return nil
-	end
-
-	if childName then
-		local namedChild = container:FindFirstChild(childName)
-		if namedChild and namedChild:IsA("GuiButton") then
-			return namedChild
-		end
-	end
-
-	local imageButton = container:FindFirstChildWhichIsA("ImageButton", true)
-	if imageButton then
-		return imageButton
-	end
-
-	return container:FindFirstChildWhichIsA("TextButton", true)
-end
-
-local function findTextLabel(container: Instance?, childName: string?): TextLabel?
-	if not container then
-		return nil
-	end
-
-	if childName then
-		local namedChild = container:FindFirstChild(childName)
-		if namedChild and namedChild:IsA("TextLabel") then
-			return namedChild
-		end
-	end
-
-	return container:FindFirstChildWhichIsA("TextLabel", true)
-end
 
 local function findImageLabel(container: Instance?, childName: string?): ImageLabel?
 	if not container then
@@ -93,19 +73,6 @@ local function findImageLabel(container: Instance?, childName: string?): ImageLa
 	end
 
 	return container:FindFirstChildWhichIsA("ImageLabel", true)
-end
-
-local function findGuiObject(container: Instance?, childName: string): GuiObject?
-	if not container then
-		return nil
-	end
-
-	local child = container:FindFirstChild(childName)
-	if child and child:IsA("GuiObject") then
-		return child
-	end
-
-	return nil
 end
 
 local function getTemplateCards(frame: GuiObject): { GuiObject }
@@ -128,12 +95,22 @@ local function getTemplateCards(frame: GuiObject): { GuiObject }
 	return cards
 end
 
-local function destroyCardFrames(cardRecords: { MapCardRecord })
-	for _, cardRecord in ipairs(cardRecords) do
-		cardRecord.Frame:Destroy()
+local function getFallbackImageFromTemplate(frame: GuiObject): string
+	local templateCards = getTemplateCards(frame)
+	local fallbackImage = ""
+
+	for _, template in ipairs(templateCards) do
+		if fallbackImage == "" then
+			local imageLabel = findImageLabel(template, "MapImage")
+			if imageLabel then
+				fallbackImage = imageLabel.Image
+			end
+		end
+
+		template:Destroy()
 	end
 
-	table.clear(cardRecords)
+	return fallbackImage
 end
 
 local function getMapsFolder(): Folder?
@@ -162,13 +139,35 @@ local function resolveImageValue(instance: Instance): string?
 	return nil
 end
 
-local function resolveMapImage(component: MapSelectionComponent, mapName: string, fallbackImage: string): string
+local function getMapDisplayName(mapName: string): string
+	local mapDefinition = SharedConfig.Maps[mapName]
+	if mapDefinition then
+		local displayName = mapDefinition.DisplayName
+		if type(displayName) == "string" and displayName ~= "" then
+			return displayName
+		end
+	end
+
+	return mapName
+end
+
+local function resolveMapImage(component: MapSelectionComponent, mapName: string): string
 	local cachedImage = component.MapImageCache[mapName]
 	if cachedImage ~= nil then
 		return cachedImage
 	end
 
-	local resolvedImage = fallbackImage
+	local resolvedImage = component.FallbackImage
+	local mapDefinition = SharedConfig.Maps[mapName]
+	if mapDefinition then
+		local icon = mapDefinition.Icon
+		if type(icon) == "string" and icon ~= "" then
+			resolvedImage = icon
+			component.MapImageCache[mapName] = resolvedImage
+			return resolvedImage
+		end
+	end
+
 	local mapsFolder = getMapsFolder()
 	local mapModel = if mapsFolder then mapsFolder:FindFirstChild(mapName) else nil
 
@@ -195,153 +194,392 @@ local function resolveMapImage(component: MapSelectionComponent, mapName: string
 	return resolvedImage
 end
 
-local function applyCardState(component: MapSelectionComponent, cardRecord: MapCardRecord)
-	local isVoting = component.MatchState == MatchStates.Voting
-	local isSelected = component.LocalVote == cardRecord.MapName
-
-	cardRecord.Frame.Visible = true
-	cardRecord.Frame:SetAttribute("MapName", cardRecord.MapName)
-	cardRecord.Frame:SetAttribute("Selected", isSelected)
-	cardRecord.Frame:SetAttribute("Voting", isVoting)
-
-	if cardRecord.Button then
-		cardRecord.Button.Active = isVoting
-		cardRecord.Button.Selectable = isVoting
-		cardRecord.Button.AutoButtonColor = isVoting
+local function findNamedBasePart(container: Instance, partName: string): BasePart?
+	local directChild = container:FindFirstChild(partName)
+	if directChild and directChild:IsA("BasePart") then
+		return directChild
 	end
 
-	if cardRecord.NameLabel then
-		cardRecord.NameLabel.Text = cardRecord.MapName
-	end
-
-	if cardRecord.ImageLabel then
-		local resolvedImage = resolveMapImage(component, cardRecord.MapName, cardRecord.BaseImage)
-		if resolvedImage ~= "" then
-			cardRecord.ImageLabel.Image = resolvedImage
+	for _, descendant in container:GetDescendants() do
+		if descendant.Name == partName and descendant:IsA("BasePart") then
+			return descendant
 		end
 	end
 
-	if cardRecord.Glow then
-		cardRecord.Glow.Visible = isSelected
-	end
-
-	if cardRecord.CheckMark then
-		cardRecord.CheckMark.Visible = isSelected
-	end
-
-	if cardRecord.VoteAvatarFrame then
-		cardRecord.VoteAvatarFrame.Visible = isSelected
-	end
-
-	if isSelected and cardRecord.VoteAvatarImage and component.PlayerThumbnail ~= "" then
-		cardRecord.VoteAvatarImage.Image = component.PlayerThumbnail
-	end
+	return nil
 end
 
-local function refreshComponent(component: MapSelectionComponent)
-	local isVoting = component.MatchState == MatchStates.Voting and #component.MapOptions > 0
-
-	component.Frame:SetAttribute("OpenOverride", isVoting)
-	component.Frame:SetAttribute("MatchState", component.MatchState)
-	component.Frame:SetAttribute("SelectedMap", component.LocalVote)
-	component.Frame:SetAttribute("MapCount", #component.MapOptions)
-
-	for _, cardRecord in ipairs(component.CardRecords) do
-		applyCardState(component, cardRecord)
-	end
+local function createLabel(parent: Instance, name: string): TextLabel
+	local label = Instance.new("TextLabel")
+	label.Name = name
+	label.BackgroundTransparency = 1
+	label.BorderSizePixel = 0
+	label.Font = Enum.Font.GothamBold
+	label.TextColor3 = Color3.fromRGB(246, 248, 250)
+	label.TextScaled = true
+	label.TextWrapped = true
+	label.TextXAlignment = Enum.TextXAlignment.Center
+	label.TextYAlignment = Enum.TextYAlignment.Center
+	label.Parent = parent
+	return label
 end
 
-local function rebuildCards(component: MapSelectionComponent, matchService: any)
-	if component._cardTrove then
-		component._cardTrove:Clean()
+local function createVotingScreen(screenPart: BasePart, slot: number, trove: Types.Trove): ScreenRecord
+	local existingGui = screenPart:FindFirstChild(VOTING_SCREEN_GUI_NAME)
+	if existingGui then
+		existingGui:Destroy()
 	end
 
-	component._cardTrove = Trove.new()
-	local cardTrove = component._cardTrove :: Types.Trove
-	destroyCardFrames(component.CardRecords)
+	local surfaceGui = Instance.new("SurfaceGui")
+	surfaceGui.Name = VOTING_SCREEN_GUI_NAME
+	surfaceGui.Adornee = screenPart
+	surfaceGui.Face = VOTING_SCREEN_FACE
+	surfaceGui.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+	surfaceGui.CanvasSize = VOTING_SCREEN_CANVAS_SIZE
+	surfaceGui.AlwaysOnTop = false
+	surfaceGui.LightInfluence = 0
+	surfaceGui.Enabled = false
+	surfaceGui.Parent = screenPart
+	trove:Add(surfaceGui)
 
-	local templateCard = component.TemplateCard
-	if not templateCard then
-		refreshComponent(component)
+	local background = Instance.new("Frame")
+	background.Name = "Background"
+	background.BackgroundColor3 = Color3.fromRGB(8, 11, 14)
+	background.BorderSizePixel = 0
+	background.Size = UDim2.fromScale(1, 1)
+	background.ZIndex = 1
+	background.Parent = surfaceGui
+
+	local mapImage = Instance.new("ImageLabel")
+	mapImage.Name = "MapImage"
+	mapImage.BackgroundColor3 = Color3.fromRGB(15, 18, 22)
+	mapImage.BorderSizePixel = 0
+	mapImage.Position = UDim2.fromOffset(0, HEADER_HEIGHT)
+	mapImage.Size = UDim2.new(1, 0, 1, -HEADER_HEIGHT)
+	mapImage.ScaleType = Enum.ScaleType.Crop
+	mapImage.ZIndex = 1
+	mapImage.Parent = background
+
+	local highlight = Instance.new("Frame")
+	highlight.Name = "VoteHighlight"
+	highlight.BackgroundColor3 = VOTE_HIGHLIGHT_COLOR
+	highlight.BackgroundTransparency = 1
+	highlight.BorderSizePixel = 0
+	highlight.Size = UDim2.fromScale(1, 1)
+	highlight.Visible = false
+	highlight.ZIndex = 2
+	highlight.Parent = background
+
+	local header = Instance.new("Frame")
+	header.Name = "Header"
+	header.BackgroundColor3 = Color3.fromRGB(9, 14, 20)
+	header.BackgroundTransparency = 0.05
+	header.BorderSizePixel = 0
+	header.Size = UDim2.new(1, 0, 0, HEADER_HEIGHT)
+	header.ZIndex = 3
+	header.Parent = background
+
+	local headerStroke = Instance.new("UIStroke")
+	headerStroke.Name = "BottomLine"
+	headerStroke.Color = Color3.fromRGB(95, 180, 255)
+	headerStroke.Thickness = 2
+	headerStroke.Transparency = 0.25
+	headerStroke.Parent = header
+
+	local nameLabel = createLabel(header, "MapName")
+	nameLabel.Position = UDim2.fromOffset(24, 4)
+	nameLabel.Size = UDim2.new(1, -48, 1, -8)
+	nameLabel.ZIndex = 4
+
+	local emptyLabel = createLabel(background, "Empty")
+	emptyLabel.Font = Enum.Font.GothamMedium
+	emptyLabel.TextColor3 = Color3.fromRGB(168, 178, 188)
+	emptyLabel.Text = ""
+	emptyLabel.Position = UDim2.fromOffset(40, HEADER_HEIGHT)
+	emptyLabel.Size = UDim2.new(1, -80, 1, -HEADER_HEIGHT)
+	emptyLabel.Visible = false
+	emptyLabel.ZIndex = 4
+
+	surfaceGui:SetAttribute("VotingSlot", slot)
+	screenPart:SetAttribute("VotingSlot", slot)
+
+	return {
+		Slot = slot,
+		ScreenPart = screenPart,
+		SurfaceGui = surfaceGui,
+		NameLabel = nameLabel,
+		ImageLabel = mapImage,
+		EmptyLabel = emptyLabel,
+		HighlightFrame = highlight,
+		HighlightTween = nil,
+	}
+end
+
+local function getVotingScreensModel(): Instance?
+	local lobby = Workspace:FindFirstChild("Lobby")
+	if not lobby then
+		return nil
+	end
+
+	return lobby:FindFirstChild("VotingScreens")
+end
+
+local function getVotingPadsModel(): Instance?
+	local lobby = Workspace:FindFirstChild("Lobby")
+	if not lobby then
+		return nil
+	end
+
+	return lobby:FindFirstChild("VotingPads")
+end
+
+local function isLocalCharacterPart(part: BasePart): boolean
+	local character = localPlayer.Character
+	return character ~= nil and part:IsDescendantOf(character)
+end
+
+local function ensureScreenRecords(component: MapSelectionComponent)
+	if component._screenTrove then
 		return
 	end
 
-	for index, mapName in ipairs(component.MapOptions) do
-		local cardFrame = templateCard:Clone()
-		cardFrame.Name = ("ContainerMapDynamic%d"):format(index)
-		cardFrame.LayoutOrder = index
-		cardFrame.Visible = true
-		cardFrame.Parent = component.Frame
-
-		local mapFrame = findGuiObject(cardFrame, "Map")
-		local voteAvatarFrame = if mapFrame then findGuiObject(mapFrame, "Pfp") else nil
-		local voteAvatarImage = if voteAvatarFrame then findImageLabel(voteAvatarFrame, "Pfp") else nil
-		local imageLabel = if mapFrame then findImageLabel(mapFrame, "MapImage") else nil
-		local cardRecord: MapCardRecord = {
-			Frame = cardFrame,
-			Button = findButton(cardFrame, "ButtonHitbox"),
-			Glow = findGuiObject(cardFrame, "Glow"),
-			CheckMark = if mapFrame then findGuiObject(mapFrame, "CheckMark") else nil,
-			NameLabel = if mapFrame then findTextLabel(mapFrame, "MapName") else nil,
-			ImageLabel = imageLabel,
-			VoteAvatarFrame = voteAvatarFrame,
-			VoteAvatarImage = voteAvatarImage,
-			BaseImage = if imageLabel then imageLabel.Image else "",
-			MapName = mapName,
-		}
-
-		if cardRecord.Button then
-			cardTrove:Connect(cardRecord.Button.Activated, function()
-				if component.MatchState ~= MatchStates.Voting then
-					return
-				end
-
-				component.LocalVote = mapName
-				refreshComponent(component)
-				matchService.SubmitVote:Fire("map", mapName)
-			end)
+	local votingScreens = getVotingScreensModel()
+	if not votingScreens then
+		if not component._warnedMissingScreens then
+			component._warnedMissingScreens = true
+			warn("[MapSelection] workspace.Lobby.VotingScreens missing; map voting screens unavailable")
 		end
-
-		table.insert(component.CardRecords, cardRecord)
+		return
 	end
 
-	refreshComponent(component)
+	local screenTrove = Trove.new()
+	component._screenTrove = screenTrove
+
+	for slot = 1, VOTING_SCREEN_COUNT do
+		local screenPart = findNamedBasePart(votingScreens, tostring(slot))
+		if not screenPart then
+			warn(("[MapSelection] Voting screen %d missing under workspace.Lobby.VotingScreens"):format(slot))
+			continue
+		end
+
+		table.insert(component.ScreenRecords, createVotingScreen(screenPart, slot, screenTrove))
+	end
+end
+
+local function cancelHighlightTween(record: ScreenRecord)
+	local tween = record.HighlightTween
+	if tween then
+		tween:Cancel()
+		record.HighlightTween = nil
+	end
+end
+
+local function setHighlightRest(record: ScreenRecord, isSelected: boolean)
+	cancelHighlightTween(record)
+	record.HighlightFrame.Visible = isSelected
+	record.HighlightFrame.BackgroundTransparency = if isSelected then VOTE_HIGHLIGHT_REST_TRANSPARENCY else 1
+end
+
+local function pulseHighlight(record: ScreenRecord)
+	cancelHighlightTween(record)
+
+	record.HighlightFrame.Visible = true
+	record.HighlightFrame.BackgroundTransparency = VOTE_HIGHLIGHT_PULSE_TRANSPARENCY
+
+	local tween = TweenService:Create(record.HighlightFrame, VOTE_HIGHLIGHT_TWEEN_INFO, {
+		BackgroundTransparency = VOTE_HIGHLIGHT_REST_TRANSPARENCY,
+	})
+
+	record.HighlightTween = tween
+	tween.Completed:Connect(function()
+		if record.HighlightTween == tween then
+			record.HighlightTween = nil
+		end
+	end)
+	tween:Play()
+end
+
+local function refreshVoteHighlights(component: MapSelectionComponent, pulseSlot: number?)
+	local isVoting = component.MatchState == MatchStates.Voting
+	for _, record in ipairs(component.ScreenRecords) do
+		local isSelected = isVoting and component.LocalVoteSlot == record.Slot
+		if isSelected and pulseSlot == record.Slot then
+			pulseHighlight(record)
+		else
+			setHighlightRest(record, isSelected)
+		end
+	end
+end
+
+local function clearLocalVote(component: MapSelectionComponent)
+	component.LocalVoteSlot = nil
+	component.LocalVoteMap = ""
+	refreshVoteHighlights(component, nil)
+end
+
+local function submitLocalVote(component: MapSelectionComponent, slot: number)
+	if component.MatchState ~= MatchStates.Voting then
+		return
+	end
+
+	local mapName = component.MapOptions[slot]
+	if type(mapName) ~= "string" or mapName == "" then
+		return
+	end
+
+	local voteChanged = component.LocalVoteSlot ~= slot or component.LocalVoteMap ~= mapName
+	component.LocalVoteSlot = slot
+	component.LocalVoteMap = mapName
+	if voteChanged then
+		component.MatchService.SubmitVote:Fire("map", mapName)
+	end
+	refreshVoteHighlights(component, slot)
+end
+
+local function ensureVotingPadConnections(component: MapSelectionComponent)
+	if component._padTrove then
+		return
+	end
+
+	local votingPads = getVotingPadsModel()
+	if not votingPads then
+		if not component._warnedMissingPads then
+			component._warnedMissingPads = true
+			warn("[MapSelection] workspace.Lobby.VotingPads missing; local vote highlights unavailable")
+		end
+		return
+	end
+
+	local padTrove = Trove.new()
+	component._padTrove = padTrove
+
+	for slot = 1, VOTING_SCREEN_COUNT do
+		local pad = findNamedBasePart(votingPads, tostring(slot))
+		if not pad then
+			warn(("[MapSelection] Voting pad %d missing under workspace.Lobby.VotingPads"):format(slot))
+			continue
+		end
+
+		component.VotingPads[slot] = pad
+		padTrove:Connect(pad.Touched, function(touchedPart: BasePart)
+			if isLocalCharacterPart(touchedPart) then
+				submitLocalVote(component, slot)
+			end
+		end)
+	end
+end
+
+local function submitCurrentLocalVotingPadOccupants(component: MapSelectionComponent)
+	ensureVotingPadConnections(component)
+
+	if not component._padTrove or component.MatchState ~= MatchStates.Voting then
+		return
+	end
+
+	for slot, pad in component.VotingPads do
+		for _, touchingPart in ipairs(pad:GetTouchingParts()) do
+			if isLocalCharacterPart(touchingPart) then
+				submitLocalVote(component, slot)
+				return
+			end
+		end
+	end
+end
+
+local function refreshScreens(component: MapSelectionComponent)
+	component.Frame.Visible = false
+	component.Frame:SetAttribute("OpenOverride", false)
+	component.Frame:SetAttribute("MatchState", component.MatchState)
+	component.Frame:SetAttribute("MapCount", #component.MapOptions)
+
+	ensureScreenRecords(component)
+	ensureVotingPadConnections(component)
+
+	local isVoting = component.MatchState == MatchStates.Voting
+	if not isVoting then
+		clearLocalVote(component)
+	elseif component.LocalVoteSlot then
+		local currentVoteMap = component.MapOptions[component.LocalVoteSlot]
+		if currentVoteMap ~= component.LocalVoteMap then
+			clearLocalVote(component)
+		end
+	end
+
+	for _, record in ipairs(component.ScreenRecords) do
+		local mapName = component.MapOptions[record.Slot]
+		local resolvedMapName = if type(mapName) == "string" then mapName else ""
+		local hasMap = isVoting and resolvedMapName ~= ""
+
+		record.SurfaceGui.Enabled = hasMap
+		record.SurfaceGui:SetAttribute("MapName", if hasMap then resolvedMapName else "")
+		record.ScreenPart:SetAttribute("MapName", if hasMap then resolvedMapName else "")
+
+		if hasMap then
+			local image = resolveMapImage(component, resolvedMapName)
+			record.NameLabel.Text = getMapDisplayName(resolvedMapName)
+			record.ImageLabel.Image = image
+			record.ImageLabel.Visible = image ~= ""
+			record.EmptyLabel.Visible = image == ""
+			record.EmptyLabel.Text = if image == "" then getMapDisplayName(resolvedMapName) else ""
+		else
+			record.NameLabel.Text = ""
+			record.ImageLabel.Image = ""
+			record.ImageLabel.Visible = false
+			record.EmptyLabel.Visible = false
+			record.EmptyLabel.Text = ""
+		end
+	end
+
+	refreshVoteHighlights(component, nil)
 end
 
 function MapSelection.Destroy(self: MapSelectionComponent)
-	if self._cardTrove then
-		self._cardTrove:Clean()
-		self._cardTrove = nil
+	self._destroyed = true
+
+	if self._screenTrove then
+		self._screenTrove:Clean()
+		self._screenTrove = nil
 	end
 
-	destroyCardFrames(self.CardRecords)
+	if self._padTrove then
+		self._padTrove:Clean()
+		self._padTrove = nil
+	end
+
+	for _, record in ipairs(self.ScreenRecords) do
+		cancelHighlightTween(record)
+	end
+
+	table.clear(self.ScreenRecords)
+	table.clear(self.VotingPads)
 	self._trove:Clean()
 end
 
 function MapSelection.init(mapSelectionFrame: GuiObject): MapSelectionComponent
 	local matchService = framework.GetService("MatchService")
 	local trove = Trove.new()
-	local templateCards = getTemplateCards(mapSelectionFrame)
-	local templateCard = if templateCards[1] then templateCards[1]:Clone() else nil
-
-	for _, template in ipairs(templateCards) do
-		template:Destroy()
-	end
 
 	local component: MapSelectionComponent = {
 		Frame = mapSelectionFrame,
-		TemplateCard = templateCard,
-		CardRecords = {},
+		MatchService = matchService,
 		MapOptions = {},
-		LocalVote = "",
 		MatchState = MatchStates.Intermission,
-		PlayerThumbnail = "",
+		LocalVoteSlot = nil,
+		LocalVoteMap = "",
+		FallbackImage = getFallbackImageFromTemplate(mapSelectionFrame),
 		MapImageCache = {},
-		_cardTrove = nil,
+		ScreenRecords = {},
+		VotingPads = {},
+		_warnedMissingScreens = false,
+		_warnedMissingPads = false,
+		_destroyed = false,
+		_screenTrove = nil,
+		_padTrove = nil,
 		_trove = trove,
 		Destroy = MapSelection.Destroy,
 	}
 
+	mapSelectionFrame.Visible = false
 	mapSelectionFrame:SetAttribute("OpenOverride", false)
 
 	local initialMatchState = matchService.CurrentState:OnReady(5)
@@ -354,49 +592,65 @@ function MapSelection.init(mapSelectionFrame: GuiObject): MapSelectionComponent
 		component.MapOptions = table.clone(initialMapOptions)
 	end
 
-	if not component.TemplateCard then
-		warn("[UIController] MapSelection placeholder template not found")
-	else
-		rebuildCards(component, matchService)
-	end
-
 	trove:Add(matchService.CurrentState:Observe(function(matchState: string)
 		component.MatchState = matchState
-		if matchState ~= MatchStates.Voting then
-			component.LocalVote = ""
+		refreshScreens(component)
+		if matchState == MatchStates.Voting then
+			task.defer(function()
+				if not component._destroyed then
+					submitCurrentLocalVotingPadOccupants(component)
+				end
+			end)
 		end
-		refreshComponent(component)
 	end))
 
 	trove:Add(matchService.MapOptions:Observe(function(mapOptions: { string })
 		component.MapOptions = table.clone(mapOptions)
-		if component.LocalVote ~= "" and not table.find(component.MapOptions, component.LocalVote) then
-			component.LocalVote = ""
+		refreshScreens(component)
+		if component.MatchState == MatchStates.Voting then
+			task.defer(function()
+				if not component._destroyed then
+					submitCurrentLocalVotingPadOccupants(component)
+				end
+			end)
 		end
-		rebuildCards(component, matchService)
 	end))
 
 	trove:Add(matchService.VotingStarted:Connect(function(_payload: any)
-		component.LocalVote = ""
-		refreshComponent(component)
+		clearLocalVote(component)
+		refreshScreens(component)
+		task.defer(function()
+			if not component._destroyed then
+				submitCurrentLocalVotingPadOccupants(component)
+			end
+		end)
 	end))
 
 	task.spawn(function()
-		local ok, image = pcall(function()
-			return Players:GetUserThumbnailAsync(
-				localPlayer.UserId,
-				Enum.ThumbnailType.HeadShot,
-				Enum.ThumbnailSize.Size150x150
-			)
-		end)
+		if not Workspace:FindFirstChild("Lobby") then
+			Workspace:WaitForChild("Lobby", 10)
+		end
 
-		if ok and mapSelectionFrame.Parent then
-			component.PlayerThumbnail = image
-			refreshComponent(component)
+		if component._destroyed then
+			return
+		end
+
+		local lobby = Workspace:FindFirstChild("Lobby")
+		if lobby and not lobby:FindFirstChild("VotingScreens") then
+			lobby:WaitForChild("VotingScreens", 10)
+		end
+
+		if lobby and not lobby:FindFirstChild("VotingPads") then
+			lobby:WaitForChild("VotingPads", 10)
+		end
+
+		if not component._destroyed then
+			refreshScreens(component)
+			submitCurrentLocalVotingPadOccupants(component)
 		end
 	end)
 
-	refreshComponent(component)
+	refreshScreens(component)
 
 	return component
 end

@@ -20,7 +20,6 @@ local ACTION_EQUIP1 = "Combat_Equip1"
 local ACTION_EQUIP2 = "Combat_Equip2"
 local ACTION_SWITCH = "Combat_Switch"
 local ACTION_INSPECT = "Combat_Inspect"
-local ACTION_RELOAD = "Combat_Reload"
 local ACTION_PARRY = "Combat_Parry"
 local ACTION_AIM = "Combat_Aim"
 
@@ -68,14 +67,6 @@ local function onSwitch(_actionName: string, inputState: Enum.UserInputState)
 	return Enum.ContextActionResult.Sink
 end
 
-local function onReload(_actionName: string, inputState: Enum.UserInputState)
-	if inputState == Enum.UserInputState.Begin then
-		viewmodelController:Reload()
-	end
-
-	return Enum.ContextActionResult.Sink
-end
-
 local function onParry(_actionName: string, inputState: Enum.UserInputState)
 	if inputState == Enum.UserInputState.Begin then
 		viewmodelController:Parry()
@@ -107,7 +98,6 @@ function CombatInputController:Enable()
 	ContextActionService:BindAction(ACTION_EQUIP2, onEquipKnife, false, Enum.KeyCode.Two)
 	ContextActionService:BindAction(ACTION_SWITCH, onSwitch, false, Enum.UserInputType.MouseWheel)
 	ContextActionService:BindAction(ACTION_INSPECT, onInspect, false, Enum.KeyCode.T)
-	ContextActionService:BindAction(ACTION_RELOAD, onReload, false, Enum.KeyCode.R)
 	ContextActionService:BindAction(ACTION_PARRY, onParry, false, Enum.KeyCode.F)
 	ContextActionService:BindAction(ACTION_AIM, onAim, false, Enum.UserInputType.MouseButton2)
 end
@@ -124,7 +114,6 @@ function CombatInputController:Disable()
 	ContextActionService:UnbindAction(ACTION_EQUIP2)
 	ContextActionService:UnbindAction(ACTION_SWITCH)
 	ContextActionService:UnbindAction(ACTION_INSPECT)
-	ContextActionService:UnbindAction(ACTION_RELOAD)
 	ContextActionService:UnbindAction(ACTION_PARRY)
 	ContextActionService:UnbindAction(ACTION_AIM)
 end

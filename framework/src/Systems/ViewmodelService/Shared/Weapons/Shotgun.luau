@@ -13,24 +13,7 @@ Shotgun.__index = Shotgun
 
 Shotgun.Name = "Shotgun"
 
-local SHELL_CAPACITY = 6
-local DEFAULT_RELOAD_PHASE_DURATION = 0.15
-
-type ReloadStateChanged = (isReloading: boolean, progress: number, tweenDuration: number?) -> ()
 type FireSucceeded = () -> ()
-
-local function getTrackPlaybackDuration(track: AnimationTrack?): number
-	if not track then
-		return DEFAULT_RELOAD_PHASE_DURATION
-	end
-
-	local speed = math.abs(track.Speed)
-	if speed <= 0 then
-		speed = 1
-	end
-
-	return math.max(track.Length / speed, DEFAULT_RELOAD_PHASE_DURATION)
-end
 
 local function applySpread(direction: Vector3, spreadDegrees: number): Vector3
 	local spreadRadians = math.rad(spreadDegrees)
@@ -65,49 +48,12 @@ local function findDescendantByName(container: Instance, targetName: string): In
 	return nil
 end
 
-local function playPhase(
-	animationController: any,
-	animator: AnimationController,
-	animName: string,
-	priority: Enum.AnimationPriority,
-	cancelled: () -> boolean
-): boolean
-	local viewmodelTrack = animationController:PlayAnimation(animator, animName, priority, false)
-	local avatarTrack = animationController:PlayAnimationToAvatar(animName, priority, false)
-
-	if not viewmodelTrack then
-		if avatarTrack then
-			avatarTrack:Stop(0)
-		end
-
-		return not cancelled()
-	end
-
-	repeat
-		RunService.Heartbeat:Wait()
-		if cancelled() then
-			viewmodelTrack:Stop(0.1)
-			if avatarTrack then
-				avatarTrack:Stop(0.1)
-			end
-			return false
-		end
-	until not viewmodelTrack.IsPlaying
-
-	if avatarTrack then
-		avatarTrack:Stop(0.1)
-	end
-
-	return true
-end
-
 function Shotgun.new(
 	localPlayer: Player,
 	camera: Camera,
 	viewmodel: Model,
 	animationController: any,
 	combatService: any,
-	onReloadStateChanged: ReloadStateChanged?,
 	onFireSucceeded: FireSucceeded?
 )
 	local self = setmetatable({}, Shotgun)
@@ -115,7 +61,6 @@ function Shotgun.new(
 	self._camera = camera
 	self._animationController = animationController
 	self._combatService = combatService
-	self._onReloadStateChanged = onReloadStateChanged
 	self._onFireSucceeded = onFireSucceeded
 	self._caster = FastCast.new()
 	self._behavior = FastCast.newBehavior()
@@ -124,9 +69,6 @@ function Shotgun.new(
 	self.Animator = viewmodel:FindFirstChildWhichIsA("AnimationController") :: AnimationController
 	self.character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
 	self.OnCooldown = false
-	self._shells = SHELL_CAPACITY
-	self._reloading = false
-	self._reloadCancelled = false
 	self._isAiming = false
 	self._muzzleAttachment = nil :: Attachment?
 	self._runConnection = nil :: RBXScriptConnection?
@@ -176,20 +118,6 @@ function Shotgun.new(
 	self:_refreshMuzzleAttachment()
 
 	return self
-end
-
-function Shotgun:_setReloadState(isReloading: boolean, progress: number, tweenDuration: number?)
-	local callback = self._onReloadStateChanged
-	if not callback then
-		return
-	end
-
-	callback(isReloading, math.clamp(progress, 0, 1), tweenDuration or 0)
-end
-
-function Shotgun:_getReloadPhaseDuration(animName: string): number
-	local track = self._animationController:GetAnimation(self.Animator, animName, Enum.AnimationPriority.Action3, false)
-	return getTrackPlaybackDuration(track)
 end
 
 function Shotgun:_getCharacterHumanoid(): Humanoid?
@@ -316,17 +244,11 @@ function Shotgun:_updateRunAnimation()
 end
 
 function Shotgun:PrimaryFire()
-	if self.OnCooldown or self._shells <= 0 then
+	if self.OnCooldown then
 		return
 	end
 
-	if self._reloading then
-		self._reloadCancelled = true
-		self:_setReloadState(false, 0, 0)
-	end
-
 	self.OnCooldown = true
-	self._shells -= 1
 
 	local origin, direction = self:_getFireOriginAndDirection()
 	local isAiming = self._isAiming
@@ -378,98 +300,6 @@ function Shotgun:PrimaryFire()
 	end
 end
 
-function Shotgun:Reload()
-	if self._shells >= SHELL_CAPACITY or self._reloading then
-		return
-	end
-
-	self._reloading = true
-	self._reloadCancelled = false
-
-	local shellsNeeded = SHELL_CAPACITY - self._shells
-	local reloadStartDuration = self:_getReloadPhaseDuration("ShotgunReloadStart")
-	local reloadShellDuration = self:_getReloadPhaseDuration("ShotgunReloadShell")
-	local reloadEndDuration = self:_getReloadPhaseDuration("ShotgunReloadEnd")
-	local totalDuration = reloadStartDuration + (reloadShellDuration * shellsNeeded) + reloadEndDuration
-	local elapsedDuration = 0
-	local cancelled = function(): boolean
-		return self._reloadCancelled
-	end
-
-	self:_setReloadState(true, 0, 0)
-	self:_setReloadState(
-		true,
-		reloadStartDuration / totalDuration,
-		reloadStartDuration
-	)
-	local completed = playPhase(
-		self._animationController,
-		self.Animator,
-		"ShotgunReloadStart",
-		Enum.AnimationPriority.Action3,
-		cancelled
-	)
-	if not completed then
-		self._reloading = false
-		self:_setReloadState(false, 0, 0)
-		return
-	end
-
-	elapsedDuration += reloadStartDuration
-	self:_setReloadState(true, elapsedDuration / totalDuration, 0)
-
-	for _ = 1, shellsNeeded do
-		if self._reloadCancelled then
-			break
-		end
-
-		local targetDuration = elapsedDuration + reloadShellDuration
-		self:_setReloadState(
-			true,
-			targetDuration / totalDuration,
-			reloadShellDuration
-		)
-		completed = playPhase(
-			self._animationController,
-			self.Animator,
-			"ShotgunReloadShell",
-			Enum.AnimationPriority.Action3,
-			cancelled
-		)
-		if not completed then
-			break
-		end
-
-		elapsedDuration = targetDuration
-		self:_setReloadState(true, elapsedDuration / totalDuration, 0)
-		self._shells += 1
-	end
-
-	if not self._reloadCancelled then
-		local targetDuration = elapsedDuration + reloadEndDuration
-		self:_setReloadState(
-			true,
-			targetDuration / totalDuration,
-			reloadEndDuration
-		)
-		local endCompleted = playPhase(
-			self._animationController,
-			self.Animator,
-			"ShotgunReloadEnd",
-			Enum.AnimationPriority.Action3,
-			cancelled
-		)
-		if endCompleted then
-			elapsedDuration = targetDuration
-			self:_setReloadState(true, elapsedDuration / totalDuration, 0)
-		end
-	end
-
-	self._reloading = false
-	self._reloadCancelled = false
-	self:_setReloadState(false, 0, 0)
-end
-
 function Shotgun:Inspect()
 	if self._isAiming then
 		return
@@ -481,14 +311,10 @@ function Shotgun:Inspect()
 end
 
 function Shotgun:CanAim(): boolean
-	return not self._reloading
+	return true
 end
 
 function Shotgun:SetAiming(isAiming: boolean)
-	if isAiming and self._reloading then
-		isAiming = false
-	end
-
 	if self._isAiming == isAiming then
 		return
 	end
@@ -504,8 +330,6 @@ function Shotgun:Parry()
 end
 
 function Shotgun:Destroy()
-	self:_setReloadState(false, 0, 0)
-
 	if self._runConnection then
 		self._runConnection:Disconnect()
 		self._runConnection = nil

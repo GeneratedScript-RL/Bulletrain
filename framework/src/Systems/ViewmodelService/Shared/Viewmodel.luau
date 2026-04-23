@@ -13,7 +13,6 @@ export type Weapon = {
 	Name: string,
 	PrimaryFire: (self: Weapon) -> (),
 	Inspect: (self: Weapon) -> (),
-	Reload: (self: Weapon) -> (),
 	Parry: (self: Weapon) -> (),
 	CanAim: (self: Weapon) -> boolean,
 	SetAiming: (self: Weapon, isAiming: boolean) -> (),
@@ -23,7 +22,6 @@ export type Weapon = {
 local Viewmodel = {}
 Viewmodel.__index = Viewmodel
 
-type ReloadStateChanged = (isReloading: boolean, progress: number, tweenDuration: number?) -> ()
 type ShotgunFired = () -> ()
 
 local DEFAULT_VIEWMODEL_ROTATION = CFrame.Angles(math.rad(180), 0, math.rad(180))
@@ -151,7 +149,6 @@ function Viewmodel.new(
 	camera: Camera,
 	animationController: any,
 	combatService: any,
-	onReloadStateChanged: ReloadStateChanged?,
 	onShotgunFired: ShotgunFired?
 )
 	local self = setmetatable({}, Viewmodel)
@@ -159,7 +156,6 @@ function Viewmodel.new(
 	self._camera = camera
 	self._animationController = animationController
 	self._combatService = combatService
-	self._onReloadStateChanged = onReloadStateChanged
 	self._onShotgunFired = onShotgunFired
 	self._vmModel = nil :: Model?
 	self._weapon = nil :: Weapon?
@@ -445,10 +441,6 @@ function Viewmodel:Equip(weaponName: string, force: boolean?)
 		return
 	end
 
-	if self._onReloadStateChanged then
-		self._onReloadStateChanged(false, 0, 0)
-	end
-
 	if self._weapon then
 		self._weapon:Destroy()
 		self._weapon = nil
@@ -468,7 +460,6 @@ function Viewmodel:Equip(weaponName: string, force: boolean?)
 			self._vmModel,
 			self._animationController,
 			self._combatService,
-			self._onReloadStateChanged,
 			function()
 				self:_applyShotgunRecoil()
 				if self._onShotgunFired then
@@ -490,16 +481,6 @@ end
 function Viewmodel:Inspect()
 	if self._weapon then
 		self._weapon:Inspect()
-	end
-end
-
-function Viewmodel:Reload()
-	if self._weapon then
-		if self._aimRequested then
-			self:SetAiming(false)
-		end
-
-		self._weapon:Reload()
 	end
 end
 
@@ -528,10 +509,6 @@ function Viewmodel:CanAim(): boolean
 end
 
 function Viewmodel:Destroy()
-	if self._onReloadStateChanged then
-		self._onReloadStateChanged(false, 0, 0)
-	end
-
 	if self._renderStepBound then
 		RunService:UnbindFromRenderStep(RENDER_STEP_NAME)
 		self._renderStepBound = false

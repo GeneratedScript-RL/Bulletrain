@@ -150,9 +150,6 @@ end
 function Knife:Inspect()
 end
 
-function Knife:Reload()
-end
-
 function Knife:CanAim(): boolean
 	return false
 end

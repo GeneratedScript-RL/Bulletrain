@@ -2,7 +2,6 @@
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 
 local root = script.Parent.Parent.Parent.Parent.Parent
 local Dependencies = require(root.Dependencies)
@@ -70,12 +69,6 @@ type GamePlayComponent = {
 	HealthAmountLabel: TextLabel?,
 	HealthBar: GuiObject?,
 	HealthBarFullSize: UDim2,
-	ReloadFrame: GuiObject?,
-	ReloadBar: GuiObject?,
-	ReloadBarFullSize: UDim2,
-	ReloadBarFullPosition: UDim2,
-	ReloadBarAnchorPoint: Vector2,
-	ReloadTween: Tween?,
 	EliminatedBar: GuiObject?,
 	EliminatedNameLabel: TextLabel?,
 	NextEliminationBarId: number,
@@ -444,83 +437,6 @@ local function setHealth(component: GamePlayComponent, currentHealth: number, ma
 	component.Frame:SetAttribute("MaxHealth", safeMaxHealth)
 end
 
-local function cancelReloadTween(component: GamePlayComponent)
-	local reloadTween = component.ReloadTween
-	if reloadTween then
-		reloadTween:Cancel()
-		component.ReloadTween = nil
-	end
-end
-
-local function getReloadBarGoal(component: GamePlayComponent, progress: number): { Position: UDim2, Size: UDim2 }
-	local clampedProgress = math.clamp(progress, 0, 1)
-	local fullSize = component.ReloadBarFullSize
-	local fullPosition = component.ReloadBarFullPosition
-	local anchorPoint = component.ReloadBarAnchorPoint
-
-	local targetSize = UDim2.new(
-		clampedProgress,
-		0,
-		fullSize.Y.Scale,
-		fullSize.Y.Offset
-	)
-
-	local leftEdgeScale = fullPosition.X.Scale - (fullSize.X.Scale * anchorPoint.X)
-	local leftEdgeOffset = fullPosition.X.Offset - (fullSize.X.Offset * anchorPoint.X)
-	local targetPosition = UDim2.new(
-		leftEdgeScale + (targetSize.X.Scale * anchorPoint.X),
-		leftEdgeOffset + (targetSize.X.Offset * anchorPoint.X),
-		fullPosition.Y.Scale,
-		fullPosition.Y.Offset
-	)
-
-	return {
-		Position = targetPosition,
-		Size = targetSize,
-	}
-end
-
-local function setReloadBar(component: GamePlayComponent, isVisible: boolean, progress: number, tweenDuration: number)
-	local reloadFrame = component.ReloadFrame
-	local reloadBar = component.ReloadBar
-	if not reloadFrame or not reloadBar then
-		return
-	end
-
-	cancelReloadTween(component)
-
-	local goal = getReloadBarGoal(component, if isVisible then progress else 0)
-
-	if not isVisible then
-		reloadFrame.Visible = false
-		reloadBar.Position = goal.Position
-		reloadBar.Size = goal.Size
-		return
-	end
-
-	reloadFrame.Visible = true
-
-	if tweenDuration <= 0 then
-		reloadBar.Position = goal.Position
-		reloadBar.Size = goal.Size
-		return
-	end
-
-	local tween = TweenService:Create(
-		reloadBar,
-		TweenInfo.new(tweenDuration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
-		goal
-	)
-
-	component.ReloadTween = tween
-	component._trove:Connect(tween.Completed, function()
-		if component.ReloadTween == tween then
-			component.ReloadTween = nil
-		end
-	end)
-	tween:Play()
-end
-
 local function bindCharacter(component: GamePlayComponent, character: Model)
 	if component._characterTrove then
 		component._characterTrove:Clean()
@@ -849,7 +765,6 @@ end
 
 function GamePlay.Destroy(self: GamePlayComponent)
 	self._destroyed = true
-	cancelReloadTween(self)
 
 	if self._characterTrove then
 		self._characterTrove:Clean()
@@ -871,8 +786,7 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 	local healthFrame = findGuiObject(gamePlayFrame, "Health")
 	local healthBarHolder = findGuiObject(healthFrame, "BarHolder")
 	local healthBar = findGuiObject(healthBarHolder, "Bar")
-	local reloadFrame = findGuiObject(gamePlayFrame, "Reload")
-	local reloadBar = findGuiObject(reloadFrame, "Reload")
+	local obsoleteReloadFrame = findGuiObject(gamePlayFrame, "Reload")
 	local middleFrame = findGuiObject(gamePlayFrame, "Middle")
 	local eliminatedBar = findGuiObject(middleFrame, "EliminatedBar")
 
@@ -895,12 +809,6 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 		HealthAmountLabel = findTextLabel(healthBarHolder, "Amount"),
 		HealthBar = healthBar,
 		HealthBarFullSize = if healthBar then healthBar.Size else UDim2.fromScale(1, 1),
-		ReloadFrame = reloadFrame,
-		ReloadBar = reloadBar,
-		ReloadBarFullSize = if reloadBar then reloadBar.Size else UDim2.fromScale(1, 1),
-		ReloadBarFullPosition = if reloadBar then reloadBar.Position else UDim2.fromScale(0.5, 0.5),
-		ReloadBarAnchorPoint = if reloadBar then reloadBar.AnchorPoint else Vector2.zero,
-		ReloadTween = nil,
 		EliminatedBar = eliminatedBar,
 		EliminatedNameLabel = findTextLabel(eliminatedBar, "Amount"),
 		NextEliminationBarId = 0,
@@ -933,13 +841,16 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 		updateCrosshair(crosshair, deltaTime, viewmodelController:IsAiming())
 	end)
 
+	if obsoleteReloadFrame then
+		obsoleteReloadFrame:Destroy()
+	end
+
 	destroyChildrenWithPrefix(killFeedFrame, "DeathLog")
 
 	if component.KillFeedTemplate then
 		component.KillFeedTemplate.Visible = true
 	end
 
-	setReloadBar(component, false, 0, 0)
 	setEliminationBarVisible(component, false)
 	if component.EliminatedNameLabel then
 		component.EliminatedNameLabel.Text = ""
@@ -1021,12 +932,6 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 		end))
 	end
 
-	if viewmodelController.ReloadChanged then
-		trove:Add(viewmodelController.ReloadChanged:Connect(function(isReloading: boolean, progress: number, tweenDuration: number)
-			setReloadBar(component, isReloading, progress, tweenDuration)
-		end))
-	end
-
 	if viewmodelController.ShotgunFired then
 		trove:Add(viewmodelController.ShotgunFired:Connect(function()
 			pulseCrosshair(crosshair)
@@ -1034,12 +939,6 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 	end
 
 	refreshWeaponSlots(component, viewmodelController:GetEquippedWeaponName())
-	setReloadBar(
-		component,
-		viewmodelController:IsReloading(),
-		viewmodelController:GetReloadProgress(),
-		viewmodelController:GetReloadTweenDuration()
-	)
 
 	trove:Connect(localPlayer.CharacterAdded, function(character: Model)
 		bindCharacter(component, character)

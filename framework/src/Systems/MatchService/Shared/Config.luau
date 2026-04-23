@@ -1,11 +1,6 @@
 --!strict
 
-return {
-	IntermissionDuration = 3,
-	MatchDuration = 180,
-	EndDuration = 8,
-	KillLimit = 100000,
-	RespawnDelay = 2,
-	DefaultMode = "FFA",
-	StateAttribute = "State",
-}
+local root = script.Parent.Parent.Parent.Parent
+local SharedConfig = require(root.Shared.common.Config)
+
+return SharedConfig.Match

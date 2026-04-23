@@ -2,13 +2,20 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local root = script.Parent.Parent.Parent
 local Types = require(root.Types)
 local framework: Types.frameworkServer = require(root) :: any
 
-local Config = require(script.Parent.Shared.Config)
+local SharedConfig = require(root.Shared.common.Config)
+local Config = SharedConfig.Match
 local MatchStates = require(script.Parent.Shared.MatchStates)
+
+local MAP_VOTE_OPTION_COUNT = Config.MapVoteOptionCount
+local VOTING_PAD_TOUCH_COOLDOWN = 0.75
+local VOTING_MODEL_TIMEOUT = 10
+local MAP_OPTION_RANDOM = Random.new()
 
 local playerStateService: any
 local scoreService: any
@@ -48,10 +55,42 @@ MatchService._selectedMode = nil :: string?
 MatchService._respawnConnections = {} :: { [Player]: RBXScriptConnection }
 MatchService._votes = {} :: { [Player]: VoteData }
 MatchService._matchParticipants = {} :: { [Player]: boolean }
+MatchService._votingPads = {} :: { [number]: BasePart }
+MatchService._votingPadConnections = {} :: { RBXScriptConnection }
+MatchService._padTouchDebounces = {} :: { [Player]: { [number]: number } }
 
 local function getLobbyCFrame(): CFrame
-	local spawnLocation = workspace:WaitForChild("SpawnLocation") :: BasePart
+	local spawnLocation = Workspace:WaitForChild("SpawnLocation") :: BasePart
 	return spawnLocation.CFrame * CFrame.new(0, 3, 0)
+end
+
+local function findNamedBasePart(container: Instance, partName: string): BasePart?
+	local directChild = container:FindFirstChild(partName)
+	if directChild and directChild:IsA("BasePart") then
+		return directChild
+	end
+
+	for _, descendant in container:GetDescendants() do
+		if descendant.Name == partName and descendant:IsA("BasePart") then
+			return descendant
+		end
+	end
+
+	return nil
+end
+
+local function getPlayerFromTouchedPart(touchedPart: BasePart): Player?
+	local character = touchedPart:FindFirstAncestorOfClass("Model")
+	if not character then
+		return nil
+	end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return nil
+	end
+
+	return Players:GetPlayerFromCharacter(character)
 end
 
 local function loadCharacterAtLobby(player: Player)
@@ -128,13 +167,32 @@ function MatchService:_getMapOptions(): { string }
 	end
 
 	local options: { string } = {}
-	for _, child in mapsFolder:GetChildren() do
-		if child:IsA("Model") then
-			table.insert(options, child.Name)
+	for mapName, mapDefinition in SharedConfig.Maps do
+		if mapDefinition.Enabled ~= false then
+			local mapModel = mapsFolder:FindFirstChild(mapName)
+			if mapModel and mapModel:IsA("Model") then
+				table.insert(options, mapName)
+			end
 		end
 	end
 
-	table.sort(options)
+	if #options == 0 then
+		for _, child in mapsFolder:GetChildren() do
+			if child:IsA("Model") then
+				table.insert(options, child.Name)
+			end
+		end
+	end
+
+	for index = #options, 2, -1 do
+		local swapIndex = MAP_OPTION_RANDOM:NextInteger(1, index)
+		options[index], options[swapIndex] = options[swapIndex], options[index]
+	end
+
+	while #options > MAP_VOTE_OPTION_COUNT do
+		table.remove(options)
+	end
+
 	return options
 end
 
@@ -144,10 +202,28 @@ end
 
 function MatchService:_resetVotes()
 	table.clear(self._votes)
+	table.clear(self._padTouchDebounces)
+end
+
+function MatchService:_isCurrentVoteOption(voteType: string, value: string): boolean
+	local options = if voteType == "map"
+		then self.Client.MapOptions:Get()
+		elseif voteType == "mode" then self.Client.ModeOptions:Get()
+		else nil
+
+	if type(options) ~= "table" then
+		return false
+	end
+
+	return table.find(options, value) ~= nil
 end
 
 function MatchService:_recordVote(player: Player, voteType: string, value: string)
 	if self.Client.CurrentState:Get() ~= MatchStates.Voting or value == "" then
+		return
+	end
+
+	if not self:_isCurrentVoteOption(voteType, value) then
 		return
 	end
 
@@ -161,6 +237,103 @@ function MatchService:_recordVote(player: Player, voteType: string, value: strin
 		voteData.map = value
 	elseif voteType == "mode" then
 		voteData.mode = value
+	end
+end
+
+function MatchService:_getMapOptionForPad(padIndex: number): string?
+	local mapOptions = self.Client.MapOptions:Get()
+	if type(mapOptions) ~= "table" then
+		return nil
+	end
+
+	local mapName = mapOptions[padIndex]
+	if type(mapName) ~= "string" or mapName == "" then
+		return nil
+	end
+
+	return mapName
+end
+
+function MatchService:_recordVotingPadTouch(player: Player, padIndex: number)
+	if self.Client.CurrentState:Get() ~= MatchStates.Voting then
+		return
+	end
+
+	local now = os.clock()
+	local playerDebounces = self._padTouchDebounces[player]
+	if not playerDebounces then
+		playerDebounces = {}
+		self._padTouchDebounces[player] = playerDebounces
+	end
+
+	local lastTouch = playerDebounces[padIndex] or 0
+	if (now - lastTouch) < VOTING_PAD_TOUCH_COOLDOWN then
+		return
+	end
+
+	local mapName = self:_getMapOptionForPad(padIndex)
+	if not mapName then
+		return
+	end
+
+	playerDebounces[padIndex] = now
+	self:_recordVote(player, "map", mapName)
+end
+
+function MatchService:_disconnectVotingPads()
+	for _, connection in self._votingPadConnections do
+		connection:Disconnect()
+	end
+
+	table.clear(self._votingPadConnections)
+	table.clear(self._votingPads)
+end
+
+function MatchService:_connectVotingPads()
+	self:_disconnectVotingPads()
+
+	local lobby = Workspace:FindFirstChild("Lobby") or Workspace:WaitForChild("Lobby", VOTING_MODEL_TIMEOUT)
+	if not lobby then
+		warn("[MatchService] workspace.Lobby missing; voting pads unavailable")
+		return
+	end
+
+	local votingPads = lobby:FindFirstChild("VotingPads") or lobby:WaitForChild("VotingPads", VOTING_MODEL_TIMEOUT)
+	if not votingPads then
+		warn("[MatchService] workspace.Lobby.VotingPads missing; voting pads unavailable")
+		return
+	end
+
+	for padIndex = 1, MAP_VOTE_OPTION_COUNT do
+		local pad = findNamedBasePart(votingPads, tostring(padIndex))
+		if not pad then
+			warn(("[MatchService] Voting pad %d missing under workspace.Lobby.VotingPads"):format(padIndex))
+			continue
+		end
+
+		pad:SetAttribute("VotingSlot", padIndex)
+		self._votingPads[padIndex] = pad
+		table.insert(self._votingPadConnections, pad.Touched:Connect(function(touchedPart: BasePart)
+			local player = getPlayerFromTouchedPart(touchedPart)
+			if player then
+				self:_recordVotingPadTouch(player, padIndex)
+			end
+		end))
+	end
+end
+
+function MatchService:_recordCurrentVotingPadOccupants()
+	if self.Client.CurrentState:Get() ~= MatchStates.Voting then
+		return
+	end
+
+	for padIndex, pad in self._votingPads do
+		for _, touchingPart in ipairs(pad:GetTouchingParts()) do
+			local player = getPlayerFromTouchedPart(touchingPart)
+			if player then
+				self:_recordVotingPadTouch(player, padIndex)
+			end
+		end
 	end
 end
 
@@ -322,6 +495,10 @@ function MatchService:Init()
 		self:_recordVote(player, voteType, value)
 	end)
 
+	task.spawn(function()
+		self:_connectVotingPads()
+	end)
+
 	framework.OnPlayerAdded(function(player: Player)
 		playerStateService:SetState(player, "Menu")
 		loadCharacterAtLobby(player)
@@ -336,6 +513,7 @@ function MatchService:Init()
 
 		self._votes[player] = nil
 		self._matchParticipants[player] = nil
+		self._padTouchDebounces[player] = nil
 	end)
 end
 
@@ -375,6 +553,9 @@ function MatchService:Start()
 				modeOptions = modeOptions,
 				endsIn = Config.IntermissionDuration,
 			})
+			task.defer(function()
+				self:_recordCurrentVotingPadOccupants()
+			end)
 
 			self:_runCountdown(Config.IntermissionDuration)
 

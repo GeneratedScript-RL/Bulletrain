@@ -32,13 +32,9 @@ ViewmodelController._vm = nil :: any
 ViewmodelController._animationController = nil :: any
 ViewmodelController._combatService = nil :: any
 ViewmodelController._equippedWeaponName = nil :: string?
-ViewmodelController._reloadVisible = false
-ViewmodelController._reloadProgress = 0
-ViewmodelController._reloadTweenDuration = 0
 ViewmodelController._isAiming = false
 ViewmodelController._aimBlocked = false
 ViewmodelController.WeaponChanged = nil :: any
-ViewmodelController.ReloadChanged = nil :: any
 ViewmodelController.ShotgunFired = nil :: any
 
 function ViewmodelController:_setEquippedWeaponName(weaponName: string?)
@@ -52,26 +48,6 @@ function ViewmodelController:_setEquippedWeaponName(weaponName: string?)
 	end
 end
 
-function ViewmodelController:_setReloadState(isReloading: boolean, progress: number, tweenDuration: number?)
-	local clampedProgress = math.clamp(progress, 0, 1)
-	local resolvedDuration = math.max(tweenDuration or 0, 0)
-
-	if self._reloadVisible == isReloading
-		and self._reloadProgress == clampedProgress
-		and self._reloadTweenDuration == resolvedDuration
-	then
-		return
-	end
-
-	self._reloadVisible = isReloading
-	self._reloadProgress = clampedProgress
-	self._reloadTweenDuration = resolvedDuration
-
-	if self.ReloadChanged then
-		self.ReloadChanged:Fire(isReloading, clampedProgress, resolvedDuration)
-	end
-end
-
 function ViewmodelController:Enable()
 	if self._enabled then
 		return
@@ -79,7 +55,6 @@ function ViewmodelController:Enable()
 
 	self._enabled = true
 	self._aimBlocked = false
-	self:_setReloadState(false, 0, 0)
 
 	if self._vm then
 		self._vm:Destroy()
@@ -100,9 +75,6 @@ function ViewmodelController:Enable()
 		camera,
 		self._animationController,
 		self._combatService,
-		function(isReloading: boolean, progress: number, tweenDuration: number?)
-			self:_setReloadState(isReloading, progress, tweenDuration)
-		end,
 		function()
 			if self.ShotgunFired then
 				self.ShotgunFired:Fire()
@@ -126,7 +98,6 @@ function ViewmodelController:Disable()
 	end
 
 	clearCameraViewmodels(workspace.CurrentCamera)
-	self:_setReloadState(false, 0, 0)
 	self:_setEquippedWeaponName(nil)
 end
 
@@ -154,18 +125,6 @@ function ViewmodelController:GetEquippedWeaponName(): string?
 	return self._vm:GetEquippedWeaponName()
 end
 
-function ViewmodelController:IsReloading(): boolean
-	return self._reloadVisible
-end
-
-function ViewmodelController:GetReloadProgress(): number
-	return self._reloadProgress
-end
-
-function ViewmodelController:GetReloadTweenDuration(): number
-	return self._reloadTweenDuration
-end
-
 function ViewmodelController:IsAiming(): boolean
 	return self._isAiming
 end
@@ -190,16 +149,6 @@ function ViewmodelController:Inspect()
 	end
 end
 
-function ViewmodelController:Reload()
-	if self._vm then
-		if self._isAiming then
-			self:SetAiming(false)
-		end
-
-		self._vm:Reload()
-	end
-end
-
 function ViewmodelController:Parry()
 	if self._vm then
 		self._vm:Parry()
@@ -214,7 +163,6 @@ function ViewmodelController:Equip(name: string, force: boolean?)
 
 		self._vm:Equip(name, force)
 		self._vm:SetAiming(self._isAiming)
-		self:_setReloadState(false, 0, 0)
 		self:_setEquippedWeaponName(self._vm:GetEquippedWeaponName())
 	end
 end
@@ -251,7 +199,6 @@ function ViewmodelController:Init()
 	self._animationController = framework.GetController("AnimationController")
 	self._combatService = framework.GetService("CombatService")
 	self.WeaponChanged = Signal.new()
-	self.ReloadChanged = Signal.new()
 	self.ShotgunFired = Signal.new()
 end
 

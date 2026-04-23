@@ -30,7 +30,7 @@ local FrameDictionary: { [string]: FrameDetails } = {
 		CombatUI = true,
 	},
 	MapSelection = {
-		LobbyUI = true,
+		DefaultVisible = false,
 	},
 	Notifications = {
 		VisibleStates = {
