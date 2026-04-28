@@ -162,9 +162,14 @@ local function bindToggleControl(control: ToggleControl, trove: Types.Trove, set
 
 	trove:Add(ObjectComponents.ButtonHoverTween.apply(
 		button,
-		button.Size + UDim2.fromScale(0.04, 0.04),
 		button.Size,
-		0.12
+		button.Size,
+		0.12,
+		{
+			VisualTarget = control.Row,
+			HoverScaleMultiplier = 1.015,
+			HoverOffset = Vector2.zero,
+		}
 	))
 
 	trove:Connect(button.Activated, function()
@@ -178,6 +183,18 @@ local function bindSliderControl(control: SliderControl, trove: Types.Trove, set
 	local valueBox = control.ValueBox
 
 	if button then
+		trove:Add(ObjectComponents.ButtonHoverTween.apply(
+			button,
+			button.Size,
+			button.Size,
+			0.12,
+			{
+				VisualTarget = control.Tab or control.Row,
+				HoverScaleMultiplier = 1.08,
+				HoverOffset = Vector2.zero,
+			}
+		))
+
 		trove:Connect(button.InputBegan, function(input: InputObject)
 			if input.UserInputType ~= Enum.UserInputType.MouseButton1
 				and input.UserInputType ~= Enum.UserInputType.Touch
@@ -302,13 +319,31 @@ function Settings.init(settingsFrame: GuiObject): SettingsComponent
 	settingsController:RegisterFrame(settingsFrame)
 
 	local exitFrame = settingsFrame:FindFirstChild("ExitButton")
-	local resetFrame = settingsFrame:FindFirstChild("Main")
+	local mainFrame = settingsFrame:FindFirstChild("Main")
+	local resetFrame = mainFrame
 	if resetFrame then
 		resetFrame = resetFrame:FindFirstChild("ResetButton")
 	end
 
 	component.ExitButton = findButton(exitFrame, "ButtonHitbox")
 	component.ResetButton = findButton(resetFrame, "ButtonHitbox")
+
+	local entranceTargets = {} :: { GuiObject }
+	if mainFrame and mainFrame:IsA("GuiObject") then
+		table.insert(entranceTargets, mainFrame)
+	end
+
+	if exitFrame and exitFrame:IsA("GuiObject") then
+		table.insert(entranceTargets, exitFrame)
+	end
+
+	if #entranceTargets > 0 then
+		trove:Add(ObjectComponents.FrameEntranceTween.apply(settingsFrame, entranceTargets, {
+			StartScale = 0.96,
+			Offset = Vector2.new(0, 16),
+			Stagger = 0.04,
+		}))
+	end
 
 	buildControls(component, settingsFrame, trove, settingsController)
 
@@ -317,7 +352,11 @@ function Settings.init(settingsFrame: GuiObject): SettingsComponent
 			component.ExitButton,
 			component.ExitButton.Size + UDim2.fromScale(0.06, 0.06),
 			component.ExitButton.Size,
-			0.12
+			0.12,
+			{
+				VisualTarget = if exitFrame and exitFrame:IsA("GuiObject") then exitFrame else nil,
+				HoverOffset = Vector2.new(0, -4),
+			}
 		))
 
 		trove:Connect(component.ExitButton.Activated, function()
@@ -330,7 +369,11 @@ function Settings.init(settingsFrame: GuiObject): SettingsComponent
 			component.ResetButton,
 			component.ResetButton.Size + UDim2.fromScale(0.04, 0.04),
 			component.ResetButton.Size,
-			0.12
+			0.12,
+			{
+				VisualTarget = if resetFrame and resetFrame:IsA("GuiObject") then resetFrame else nil,
+				HoverOffset = Vector2.new(0, -3),
+			}
 		))
 
 		trove:Connect(component.ResetButton.Activated, function()

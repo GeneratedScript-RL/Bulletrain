@@ -2,6 +2,7 @@
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local root = script.Parent.Parent.Parent.Parent.Parent
 local Dependencies = require(root.Dependencies)
@@ -14,6 +15,19 @@ local MAX_TOP_PLAYERS = 5
 local MAX_KILLFEED_ENTRIES = 4
 local KILLFEED_ENTRY_LIFETIME = 6
 local ELIMINATION_BAR_LIFETIME = 2.5
+local ELIMINATION_POP_DURATION = 0.18
+local ELIMINATION_SETTLE_DURATION = 0.12
+local ELIMINATION_FADE_DURATION = 0.38
+local ELIMINATION_HOLD_DURATION =
+	math.max(ELIMINATION_BAR_LIFETIME - ELIMINATION_POP_DURATION - ELIMINATION_SETTLE_DURATION - ELIMINATION_FADE_DURATION, 0)
+local ELIMINATION_POP_TWEEN_INFO = TweenInfo.new(ELIMINATION_POP_DURATION, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local ELIMINATION_SETTLE_TWEEN_INFO = TweenInfo.new(ELIMINATION_SETTLE_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local ELIMINATION_FADE_TWEEN_INFO = TweenInfo.new(ELIMINATION_FADE_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+local ELIMINATION_SKULL_START_SCALE = 0.82
+local ELIMINATION_SKULL_POP_SCALE = 1.22
+local ELIMINATION_SKULL_START_OFFSET_Y = 12
+local ELIMINATION_SKULL_POP_OFFSET_Y = -14
+local ELIMINATION_SKULL_FADE_OFFSET_Y = -22
 local CROSSHAIR_DOT_SIZE = 4
 local CROSSHAIR_THICKNESS = 2
 local CROSSHAIR_MIN_GAP = 8
@@ -53,6 +67,16 @@ type RankedPlayer = {
 	Kills: number,
 }
 
+type TransparencyRecord = {
+	Instance: Instance,
+	BackgroundTransparency: number?,
+	TextTransparency: number?,
+	TextStrokeTransparency: number?,
+	ImageTransparency: number?,
+	ScrollBarImageTransparency: number?,
+	StrokeTransparency: number?,
+}
+
 type CrosshairState = {
 	Root: Frame,
 	Dot: Frame,
@@ -64,13 +88,30 @@ type CrosshairState = {
 	AimAlpha: number,
 }
 
+type CooldownBarState = {
+	Frame: GuiObject,
+	Fill: GuiObject?,
+	FillFullSize: UDim2,
+	ActiveTween: Tween?,
+	ActiveTweenConnection: RBXScriptConnection?,
+	RequestId: number,
+}
+
 type GamePlayComponent = {
 	Frame: GuiObject,
 	HealthAmountLabel: TextLabel?,
 	HealthBar: GuiObject?,
 	HealthBarFullSize: UDim2,
+	MiddleFrame: GuiObject?,
 	EliminatedBar: GuiObject?,
 	EliminatedNameLabel: TextLabel?,
+	Skull: GuiObject?,
+	SkullBasePosition: UDim2,
+	SkullBaseSize: UDim2,
+	EliminationTransparencyRecords: { TransparencyRecord },
+	EliminationDriver: NumberValue?,
+	EliminationDriverConnection: RBXScriptConnection?,
+	ActiveEliminationTweens: { Tween },
 	NextEliminationBarId: number,
 	KillFeedFrame: GuiObject?,
 	KillFeedTemplate: GuiObject?,
@@ -89,6 +130,7 @@ type GamePlayComponent = {
 	KillCounts: { [number]: number },
 	ThumbnailCache: { [number]: string },
 	Crosshair: CrosshairState?,
+	CooldownBar: CooldownBarState?,
 	_characterTrove: Types.Trove?,
 	_destroyed: boolean,
 	_trove: Types.Trove,
@@ -290,17 +332,147 @@ local function findImageLabel(container: Instance?, childName: string?): ImageLa
 	return container:FindFirstChildWhichIsA("ImageLabel", true)
 end
 
-local function findGuiObject(container: Instance?, childName: string): GuiObject?
+local function findGuiObject(container: Instance?, childName: string, recursive: boolean?): GuiObject?
 	if not container then
 		return nil
 	end
 
-	local child = container:FindFirstChild(childName)
+	local child = container:FindFirstChild(childName, recursive == true)
 	if child and child:IsA("GuiObject") then
 		return child
 	end
 
 	return nil
+end
+
+local function offsetUDim2(value: UDim2, xOffset: number, yOffset: number): UDim2
+	return UDim2.new(value.X.Scale, value.X.Offset + xOffset, value.Y.Scale, value.Y.Offset + yOffset)
+end
+
+local function scaleUDim2(value: UDim2, scaleFactor: number): UDim2
+	return UDim2.new(
+		value.X.Scale * scaleFactor,
+		math.floor(value.X.Offset * scaleFactor + 0.5),
+		value.Y.Scale * scaleFactor,
+		math.floor(value.Y.Offset * scaleFactor + 0.5)
+	)
+end
+
+local function captureTransparencyRecord(records: { TransparencyRecord }, instance: Instance)
+	local record: TransparencyRecord = {
+		Instance = instance,
+		BackgroundTransparency = nil,
+		TextTransparency = nil,
+		TextStrokeTransparency = nil,
+		ImageTransparency = nil,
+		ScrollBarImageTransparency = nil,
+		StrokeTransparency = nil,
+	}
+	local didCapture = false
+
+	if instance:IsA("GuiObject") then
+		record.BackgroundTransparency = instance.BackgroundTransparency
+		didCapture = true
+	end
+
+	if instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
+		local textObject = instance :: any
+		record.TextTransparency = textObject.TextTransparency
+		record.TextStrokeTransparency = textObject.TextStrokeTransparency
+		didCapture = true
+	end
+
+	if instance:IsA("ImageLabel") or instance:IsA("ImageButton") then
+		local imageObject = instance :: any
+		record.ImageTransparency = imageObject.ImageTransparency
+		didCapture = true
+	end
+
+	if instance:IsA("ScrollingFrame") then
+		record.ScrollBarImageTransparency = instance.ScrollBarImageTransparency
+		didCapture = true
+	end
+
+	if instance:IsA("UIStroke") then
+		record.StrokeTransparency = instance.Transparency
+		didCapture = true
+	end
+
+	if didCapture then
+		table.insert(records, record)
+	end
+end
+
+local function appendTransparencyRecords(records: { TransparencyRecord }, rootInstance: Instance?)
+	if not rootInstance then
+		return
+	end
+
+	captureTransparencyRecord(records, rootInstance)
+
+	for _, descendant in ipairs(rootInstance:GetDescendants()) do
+		captureTransparencyRecord(records, descendant)
+	end
+end
+
+local function blendTransparency(baseTransparency: number, alpha: number): number
+	return baseTransparency + (1 - baseTransparency) * math.clamp(alpha, 0, 1)
+end
+
+local function applyTransparencyRecords(records: { TransparencyRecord }, alpha: number)
+	for _, record in ipairs(records) do
+		local instance = record.Instance
+		local backgroundTransparency = record.BackgroundTransparency
+		local textTransparency = record.TextTransparency
+		local textStrokeTransparency = record.TextStrokeTransparency
+		local imageTransparency = record.ImageTransparency
+		local scrollBarImageTransparency = record.ScrollBarImageTransparency
+		local strokeTransparency = record.StrokeTransparency
+
+		if backgroundTransparency ~= nil and instance:IsA("GuiObject") then
+			instance.BackgroundTransparency = blendTransparency(backgroundTransparency, alpha)
+		end
+
+		if textTransparency ~= nil and (instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox")) then
+			local textObject = instance :: any
+			textObject.TextTransparency = blendTransparency(textTransparency, alpha)
+		end
+
+		if textStrokeTransparency ~= nil and (instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox")) then
+			local textObject = instance :: any
+			textObject.TextStrokeTransparency = blendTransparency(textStrokeTransparency, alpha)
+		end
+
+		if imageTransparency ~= nil and (instance:IsA("ImageLabel") or instance:IsA("ImageButton")) then
+			local imageObject = instance :: any
+			imageObject.ImageTransparency = blendTransparency(imageTransparency, alpha)
+		end
+
+		if scrollBarImageTransparency ~= nil and instance:IsA("ScrollingFrame") then
+			instance.ScrollBarImageTransparency = blendTransparency(scrollBarImageTransparency, alpha)
+		end
+
+		if strokeTransparency ~= nil and instance:IsA("UIStroke") then
+			instance.Transparency = blendTransparency(strokeTransparency, alpha)
+		end
+	end
+end
+
+local function createCooldownBarState(reloadFrame: Instance?): CooldownBarState?
+	if not reloadFrame or not reloadFrame:IsA("GuiObject") then
+		return nil
+	end
+
+	local fill = findGuiObject(reloadFrame, "Reload")
+
+	return {
+		Frame = reloadFrame,
+		Fill = fill,
+		FillFullSize = if fill then fill.Size else UDim2.fromScale(1, 1),
+		ActiveTween = nil,
+		ActiveTweenConnection = nil,
+		RequestId = 0,
+	}
 end
 
 local function findUIStroke(container: Instance?, childName: string?): UIStroke?
@@ -511,6 +683,96 @@ local function refreshWeaponSlots(component: GamePlayComponent, equippedWeaponNa
 	component.Frame:SetAttribute("EquippedWeapon", equippedWeaponName)
 end
 
+local function setCooldownBarFill(cooldownBar: CooldownBarState, alpha: number)
+	local fill = cooldownBar.Fill
+	if not fill then
+		return
+	end
+
+	local fullSize = cooldownBar.FillFullSize
+	local clampedAlpha = math.clamp(alpha, 0, 1)
+	fill.Size = UDim2.new(
+		fullSize.X.Scale * clampedAlpha,
+		math.floor(fullSize.X.Offset * clampedAlpha + 0.5),
+		fullSize.Y.Scale,
+		fullSize.Y.Offset
+	)
+end
+
+local function stopCooldownBarTween(cooldownBar: CooldownBarState)
+	if cooldownBar.ActiveTweenConnection then
+		cooldownBar.ActiveTweenConnection:Disconnect()
+		cooldownBar.ActiveTweenConnection = nil
+	end
+
+	if cooldownBar.ActiveTween then
+		cooldownBar.ActiveTween:Cancel()
+		cooldownBar.ActiveTween = nil
+	end
+end
+
+local function resetCooldownBar(component: GamePlayComponent)
+	local cooldownBar = component.CooldownBar
+	if not cooldownBar then
+		return
+	end
+
+	stopCooldownBarTween(cooldownBar)
+	setCooldownBarFill(cooldownBar, 1)
+	cooldownBar.Frame.Visible = false
+	component.Frame:SetAttribute("CooldownWeapon", "")
+	component.Frame:SetAttribute("CooldownAction", "")
+	component.Frame:SetAttribute("CooldownDuration", 0)
+end
+
+local function playCooldownBar(component: GamePlayComponent, weaponName: string, actionName: string, duration: number)
+	local cooldownBar = component.CooldownBar
+	local fill = if cooldownBar then cooldownBar.Fill else nil
+	if not cooldownBar or not fill then
+		return
+	end
+
+	cooldownBar.RequestId += 1
+	local requestId = cooldownBar.RequestId
+
+	stopCooldownBarTween(cooldownBar)
+
+	component.Frame:SetAttribute("CooldownWeapon", weaponName)
+	component.Frame:SetAttribute("CooldownAction", actionName)
+	component.Frame:SetAttribute("CooldownDuration", duration)
+
+	cooldownBar.Frame.Visible = true
+	setCooldownBarFill(cooldownBar, 0)
+
+	if duration <= 0 then
+		resetCooldownBar(component)
+		return
+	end
+
+	local tween = TweenService:Create(fill, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
+		Size = cooldownBar.FillFullSize,
+	})
+	cooldownBar.ActiveTween = tween
+	cooldownBar.ActiveTweenConnection = tween.Completed:Connect(function()
+		if cooldownBar.ActiveTweenConnection then
+			cooldownBar.ActiveTweenConnection:Disconnect()
+			cooldownBar.ActiveTweenConnection = nil
+		end
+
+		if cooldownBar.ActiveTween == tween then
+			cooldownBar.ActiveTween = nil
+		end
+
+		if component._destroyed or cooldownBar.RequestId ~= requestId then
+			return
+		end
+
+		resetCooldownBar(component)
+	end)
+
+	tween:Play()
+end
+
 local function renderKillFeed(component: GamePlayComponent)
 	destroyGuiObjects(component.DynamicKillFeedFrames)
 
@@ -550,18 +812,85 @@ local function renderKillFeed(component: GamePlayComponent)
 	end
 end
 
-local function setEliminationBarVisible(component: GamePlayComponent, isVisible: boolean)
-	local eliminatedBar = component.EliminatedBar
-	if not eliminatedBar then
-		return
+local function setEliminationVisible(component: GamePlayComponent, isVisible: boolean)
+	local middleFrame = component.MiddleFrame
+	if middleFrame then
+		middleFrame.Visible = isVisible
 	end
 
-	eliminatedBar.Visible = isVisible
+	local eliminatedBar = component.EliminatedBar
+	if eliminatedBar then
+		eliminatedBar.Visible = isVisible
+	end
+
+	local skull = component.Skull
+	if skull then
+		skull.Visible = isVisible
+	end
+end
+
+local function stopEliminationTweens(component: GamePlayComponent)
+	for _, tween in ipairs(component.ActiveEliminationTweens) do
+		tween:Cancel()
+	end
+
+	table.clear(component.ActiveEliminationTweens)
+end
+
+local function ensureEliminationDriver(component: GamePlayComponent): NumberValue
+	local driver = component.EliminationDriver
+	if driver then
+		return driver
+	end
+
+	driver = Instance.new("NumberValue")
+	driver.Name = "EliminationAlpha"
+	driver.Value = 0
+	component.EliminationDriver = driver
+	component.EliminationDriverConnection = driver:GetPropertyChangedSignal("Value"):Connect(function()
+		applyTransparencyRecords(component.EliminationTransparencyRecords, driver.Value)
+	end)
+	applyTransparencyRecords(component.EliminationTransparencyRecords, driver.Value)
+	return driver
+end
+
+local function resetEliminationVisuals(component: GamePlayComponent)
+	local driver = ensureEliminationDriver(component)
+	driver.Value = 0
+
+	local skull = component.Skull
+	if skull then
+		skull.Size = scaleUDim2(component.SkullBaseSize, ELIMINATION_SKULL_START_SCALE)
+		skull.Position = offsetUDim2(component.SkullBasePosition, 0, ELIMINATION_SKULL_START_OFFSET_Y)
+	end
+end
+
+local function finalizeEliminationVisuals(component: GamePlayComponent)
+	stopEliminationTweens(component)
+
+	local driver = component.EliminationDriver
+	if driver then
+		driver.Value = 1
+	else
+		applyTransparencyRecords(component.EliminationTransparencyRecords, 1)
+	end
+
+	local skull = component.Skull
+	if skull then
+		skull.Size = component.SkullBaseSize
+		skull.Position = component.SkullBasePosition
+	end
+
+	setEliminationVisible(component, false)
+end
+
+local function trackEliminationTween(component: GamePlayComponent, tween: Tween): Tween
+	table.insert(component.ActiveEliminationTweens, tween)
+	return tween
 end
 
 local function showEliminationBar(component: GamePlayComponent, victimName: string)
-	local eliminatedBar = component.EliminatedBar
-	if not eliminatedBar then
+	if not component.MiddleFrame and not component.EliminatedBar and not component.Skull then
 		return
 	end
 
@@ -572,14 +901,71 @@ local function showEliminationBar(component: GamePlayComponent, victimName: stri
 		component.EliminatedNameLabel.Text = victimName
 	end
 
-	eliminatedBar.Visible = true
+	component.Frame:SetAttribute("LastEliminatedPlayer", victimName)
 
-	task.delay(ELIMINATION_BAR_LIFETIME, function()
+	stopEliminationTweens(component)
+	setEliminationVisible(component, true)
+	resetEliminationVisuals(component)
+
+	local skull = component.Skull
+
+	task.spawn(function()
+		if skull then
+			local popTween = trackEliminationTween(component, TweenService:Create(skull, ELIMINATION_POP_TWEEN_INFO, {
+				Size = scaleUDim2(component.SkullBaseSize, ELIMINATION_SKULL_POP_SCALE),
+				Position = offsetUDim2(component.SkullBasePosition, 0, ELIMINATION_SKULL_POP_OFFSET_Y),
+			}))
+			popTween:Play()
+			popTween.Completed:Wait()
+
+			if component._destroyed or component.NextEliminationBarId ~= eliminationBarId then
+				return
+			end
+
+			table.clear(component.ActiveEliminationTweens)
+
+			local settleTween = trackEliminationTween(component, TweenService:Create(skull, ELIMINATION_SETTLE_TWEEN_INFO, {
+				Size = component.SkullBaseSize,
+				Position = component.SkullBasePosition,
+			}))
+			settleTween:Play()
+			settleTween.Completed:Wait()
+
+			if component._destroyed or component.NextEliminationBarId ~= eliminationBarId then
+				return
+			end
+
+			table.clear(component.ActiveEliminationTweens)
+		end
+
+		if ELIMINATION_HOLD_DURATION > 0 then
+			task.wait(ELIMINATION_HOLD_DURATION)
+		end
+
 		if component._destroyed or component.NextEliminationBarId ~= eliminationBarId then
 			return
 		end
 
-		setEliminationBarVisible(component, false)
+		local driver = ensureEliminationDriver(component)
+		local alphaTween = trackEliminationTween(component, TweenService:Create(driver, ELIMINATION_FADE_TWEEN_INFO, {
+			Value = 1,
+		}))
+		alphaTween:Play()
+
+		if skull then
+			local skullFadeTween = trackEliminationTween(component, TweenService:Create(skull, ELIMINATION_FADE_TWEEN_INFO, {
+				Position = offsetUDim2(component.SkullBasePosition, 0, ELIMINATION_SKULL_FADE_OFFSET_Y),
+			}))
+			skullFadeTween:Play()
+		end
+
+		alphaTween.Completed:Wait()
+
+		if component._destroyed or component.NextEliminationBarId ~= eliminationBarId then
+			return
+		end
+
+		finalizeEliminationVisuals(component)
 	end)
 end
 
@@ -766,6 +1152,22 @@ end
 function GamePlay.Destroy(self: GamePlayComponent)
 	self._destroyed = true
 
+	if self.CooldownBar then
+		stopCooldownBarTween(self.CooldownBar)
+	end
+
+	stopEliminationTweens(self)
+
+	if self.EliminationDriverConnection then
+		self.EliminationDriverConnection:Disconnect()
+		self.EliminationDriverConnection = nil
+	end
+
+	if self.EliminationDriver then
+		self.EliminationDriver:Destroy()
+		self.EliminationDriver = nil
+	end
+
 	if self._characterTrove then
 		self._characterTrove:Clean()
 		self._characterTrove = nil
@@ -786,9 +1188,13 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 	local healthFrame = findGuiObject(gamePlayFrame, "Health")
 	local healthBarHolder = findGuiObject(healthFrame, "BarHolder")
 	local healthBar = findGuiObject(healthBarHolder, "Bar")
-	local obsoleteReloadFrame = findGuiObject(gamePlayFrame, "Reload")
+	local cooldownBar = createCooldownBarState(findGuiObject(gamePlayFrame, "Reload"))
 	local middleFrame = findGuiObject(gamePlayFrame, "Middle")
 	local eliminatedBar = findGuiObject(middleFrame, "EliminatedBar")
+	local skull = findGuiObject(middleFrame, "Skull", true)
+	local eliminationTransparencyRecords: { TransparencyRecord } = {}
+	appendTransparencyRecords(eliminationTransparencyRecords, eliminatedBar)
+	appendTransparencyRecords(eliminationTransparencyRecords, skull)
 
 	local killFeedFrame = findGuiObject(gamePlayFrame, "KillFeed")
 	local killFeedTemplateSource = findChildWithPrefix(killFeedFrame, "DeathLog")
@@ -809,8 +1215,16 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 		HealthAmountLabel = findTextLabel(healthBarHolder, "Amount"),
 		HealthBar = healthBar,
 		HealthBarFullSize = if healthBar then healthBar.Size else UDim2.fromScale(1, 1),
+		MiddleFrame = middleFrame,
 		EliminatedBar = eliminatedBar,
-		EliminatedNameLabel = findTextLabel(eliminatedBar, "Amount"),
+		EliminatedNameLabel = findTextLabel(eliminatedBar, "PlayerName") or findTextLabel(eliminatedBar, "Amount"),
+		Skull = skull,
+		SkullBasePosition = if skull then skull.Position else UDim2.fromOffset(0, 0),
+		SkullBaseSize = if skull then skull.Size else UDim2.fromOffset(0, 0),
+		EliminationTransparencyRecords = eliminationTransparencyRecords,
+		EliminationDriver = nil,
+		EliminationDriverConnection = nil,
+		ActiveEliminationTweens = {},
 		NextEliminationBarId = 0,
 		KillFeedFrame = killFeedFrame,
 		KillFeedTemplate = killFeedTemplate,
@@ -829,6 +1243,7 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 		KillCounts = {},
 		ThumbnailCache = {},
 		Crosshair = crosshair,
+		CooldownBar = cooldownBar,
 		_characterTrove = nil,
 		_destroyed = false,
 		_trove = trove,
@@ -840,10 +1255,7 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 	trove:Connect(RunService.RenderStepped, function(deltaTime: number)
 		updateCrosshair(crosshair, deltaTime, viewmodelController:IsAiming())
 	end)
-
-	if obsoleteReloadFrame then
-		obsoleteReloadFrame:Destroy()
-	end
+	resetCooldownBar(component)
 
 	destroyChildrenWithPrefix(killFeedFrame, "DeathLog")
 
@@ -851,7 +1263,8 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 		component.KillFeedTemplate.Visible = true
 	end
 
-	setEliminationBarVisible(component, false)
+	setEliminationVisible(component, false)
+	applyTransparencyRecords(component.EliminationTransparencyRecords, 1)
 	if component.EliminatedNameLabel then
 		component.EliminatedNameLabel.Text = ""
 	end
@@ -935,6 +1348,12 @@ function GamePlay.init(gamePlayFrame: GuiObject): GamePlayComponent
 	if viewmodelController.ShotgunFired then
 		trove:Add(viewmodelController.ShotgunFired:Connect(function()
 			pulseCrosshair(crosshair)
+		end))
+	end
+
+	if viewmodelController.CooldownStarted then
+		trove:Add(viewmodelController.CooldownStarted:Connect(function(weaponName: string, actionName: string, duration: number)
+			playCooldownBar(component, weaponName, actionName, duration)
 		end))
 	end
 

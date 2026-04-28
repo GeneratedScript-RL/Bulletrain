@@ -127,7 +127,13 @@ local function ensureButtonHitbox(itemHolder: GuiObject): GuiButton
 	return button
 end
 
-local function applyHoverTween(trove: Types.Trove, target: GuiObject?, hoverScale: number, duration: number)
+local function applyHoverTween(
+	trove: Types.Trove,
+	target: GuiObject?,
+	hoverScale: number,
+	duration: number,
+	tweenSettings: { [string]: any }?
+)
 	if not target then
 		return
 	end
@@ -136,7 +142,8 @@ local function applyHoverTween(trove: Types.Trove, target: GuiObject?, hoverScal
 		target,
 		target.Size + UDim2.fromScale(hoverScale, hoverScale),
 		target.Size,
-		duration
+		duration,
+		tweenSettings
 	))
 end
 
@@ -710,6 +717,31 @@ function Shop.init(shopFrame: GuiObject): ShopComponent
 	component.ExitButton = findButton(exitButtonFrame, "ButtonHitbox")
 	component.MainFrame = if mainFrame and mainFrame:IsA("GuiObject") then mainFrame else nil
 
+	local entranceTargets = {} :: { GuiObject }
+	if mainFrame and mainFrame:IsA("GuiObject") then
+		table.insert(entranceTargets, mainFrame)
+	end
+
+	if tabsFrame and tabsFrame:IsA("GuiObject") then
+		table.insert(entranceTargets, tabsFrame)
+	end
+
+	if exitButtonFrame and exitButtonFrame:IsA("GuiObject") then
+		table.insert(entranceTargets, exitButtonFrame)
+	end
+
+	if backButtonFrame and backButtonFrame:IsA("GuiObject") then
+		table.insert(entranceTargets, backButtonFrame)
+	end
+
+	if #entranceTargets > 0 then
+		trove:Add(ObjectComponents.FrameEntranceTween.apply(shopFrame, entranceTargets, {
+			StartScale = 0.96,
+			Offset = Vector2.new(0, 16),
+			Stagger = 0.04,
+		}))
+	end
+
 	if component.MainFrame then
 		local packsScroll = component.MainFrame:FindFirstChild("PacksScroll")
 		local casesHolder = component.MainFrame:FindFirstChild("CasesHolder")
@@ -791,14 +823,20 @@ function Shop.init(shopFrame: GuiObject): ShopComponent
 	end
 
 	if component.ExitButton then
-		applyHoverTween(trove, exitButtonFrame :: GuiObject?, 0.04, 0.12)
+		applyHoverTween(trove, exitButtonFrame :: GuiObject?, 0.04, 0.12, {
+			VisualTarget = exitButtonFrame :: GuiObject?,
+			HoverOffset = Vector2.new(0, -4),
+		})
 		trove:Connect(component.ExitButton.Activated, function()
 			shopController:Close()
 		end)
 	end
 
 	if component.BackButton then
-		applyHoverTween(trove, backButtonFrame :: GuiObject?, 0.04, 0.12)
+		applyHoverTween(trove, backButtonFrame :: GuiObject?, 0.04, 0.12, {
+			VisualTarget = backButtonFrame :: GuiObject?,
+			HoverOffset = Vector2.new(0, -4),
+		})
 		trove:Connect(component.BackButton.Activated, function()
 			component.SelectedCaseId = nil
 			renderCaseDetail(component, shopController)
@@ -810,7 +848,10 @@ function Shop.init(shopFrame: GuiObject): ShopComponent
 		local tabName = rawTabName :: ShopTab
 		local tabControl = component.Tabs[tabName]
 		if tabControl and tabControl.Button then
-			applyHoverTween(trove, tabControl.Frame, 0.03, 0.12)
+			applyHoverTween(trove, tabControl.Frame, 0.03, 0.12, {
+				VisualTarget = tabControl.Frame,
+				HoverOffset = Vector2.new(0, -3),
+			})
 			trove:Connect(tabControl.Button.Activated, function()
 				shopController:Open(tabName)
 			end)

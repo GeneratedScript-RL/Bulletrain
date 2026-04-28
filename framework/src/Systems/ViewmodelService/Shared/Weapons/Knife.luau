@@ -2,19 +2,31 @@
 
 local RunService = game:GetService("RunService")
 
+local root = script.Parent.Parent.Parent.Parent.Parent
+local CombatConfig = require(root.Systems.CombatService.Shared.Config)
+
 local Knife = {}
 Knife.__index = Knife
 
 Knife.Name = "Knife"
 
-local PARRY_COOLDOWN = 2
 local RUN_ANIMATION_SPEED = 0.6
 
-function Knife.new(localPlayer: Player, _camera: Camera, viewmodel: Model, animationController: any, combatService: any)
+type CooldownStarted = (actionName: string, cooldown: number) -> ()
+
+function Knife.new(
+	localPlayer: Player,
+	_camera: Camera,
+	viewmodel: Model,
+	animationController: any,
+	combatService: any,
+	onCooldownStarted: CooldownStarted?
+)
 	local self = setmetatable({}, Knife)
 	self._player = localPlayer
 	self._animationController = animationController
 	self._combatService = combatService
+	self._onCooldownStarted = onCooldownStarted
 	self._viewmodel = viewmodel
 	self.Animator = viewmodel:FindFirstChildWhichIsA("AnimationController") :: AnimationController
 	self.character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
@@ -110,7 +122,7 @@ function Knife:_updateRunAnimation()
 end
 
 function Knife:PrimaryFire()
-	if self.OnCooldown then
+	if self.OnCooldown or self.OnParryCooldown then
 		return
 	end
 
@@ -118,20 +130,38 @@ function Knife:PrimaryFire()
 
 	local variant = tostring(math.random(1, 2))
 	self._combatService.KnifeSwing:Fire()
+	if self._onCooldownStarted then
+		self._onCooldownStarted("Swing", CombatConfig.Knife.SwingCooldown)
+	end
 
 	local viewmodelAnimation = self._animationController:PlayAnimation(self.Animator, "KnifeSwing" .. variant, Enum.AnimationPriority.Action3)
 	self._animationController:PlayAnimationToAvatar("KnifeSwing" .. variant, Enum.AnimationPriority.Action3)
+
+	local minimumCooldownElapsed = false
+	local animationCompleted = false
+
+	local function tryReleaseSwingCooldown()
+		if minimumCooldownElapsed and animationCompleted then
+			self.OnCooldown = false
+		end
+	end
+
+	task.delay(CombatConfig.Knife.SwingCooldown, function()
+		minimumCooldownElapsed = true
+		tryReleaseSwingCooldown()
+	end)
 
 	task.defer(function()
 		if viewmodelAnimation then
 			viewmodelAnimation.Stopped:Wait()
 		end
-		self.OnCooldown = false
+		animationCompleted = true
+		tryReleaseSwingCooldown()
 	end)
 end
 
 function Knife:Parry()
-	if self.OnParryCooldown then
+	if self.OnCooldown or self.OnParryCooldown then
 		return
 	end
 
@@ -141,8 +171,11 @@ function Knife:Parry()
 	self._animationController:PlayAnimation(self.Animator, "KnifeParry", Enum.AnimationPriority.Action3, false)
 	self._animationController:PlayAnimationToAvatar("KnifeParry", Enum.AnimationPriority.Action3, false)
 	self._combatService.ParryStart:Fire()
+	if self._onCooldownStarted then
+		self._onCooldownStarted("Parry", CombatConfig.Knife.ParryCooldown)
+	end
 
-	task.delay(PARRY_COOLDOWN, function()
+	task.delay(CombatConfig.Knife.ParryCooldown, function()
 		self.OnParryCooldown = false
 	end)
 end

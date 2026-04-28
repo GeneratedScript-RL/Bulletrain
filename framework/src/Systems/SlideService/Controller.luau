@@ -32,6 +32,7 @@ SlideController._slideStartTime = 0
 SlideController._frozenSlideVelocity = nil :: Vector3?
 SlideController._lastPosition = nil :: Vector3?
 SlideController._lastPositionCheckTime = 0
+SlideController._lateSlideRaiseTriggered = false
 
 local ACTION_SLIDE = "Combat_Slide"
 local POSITION_CHECK_INTERVAL = 0.15
@@ -54,12 +55,38 @@ local function isPerfectSlideCondition(rootPart: BasePart, slideVelocity: Vector
 	return onSlope and fastEnough
 end
 
+local function getLateSlideRaiseDuration(): number
+	return math.max(MovementSettings.SLIDE_DURATION * (1 - MovementSettings.SLIDE_RISE_START_PROGRESS), 0.05)
+end
+
 function SlideController:_getSlideAnimationName(): string
 	if viewmodelController:GetEquippedWeaponName() == "Knife" then
 		return "KnifeSlide"
 	end
 
 	return "ShotgunSlide"
+end
+
+function SlideController:_startLateSlideRaise(humanoid: Humanoid)
+	if self._lateSlideRaiseTriggered then
+		return
+	end
+
+	self._lateSlideRaiseTriggered = true
+
+	if self._cameraOffsetTween then
+		self._cameraOffsetTween:Cancel()
+		self._cameraOffsetTween = nil
+	end
+
+	self._cameraOffsetTween = TweenService:Create(
+		humanoid,
+		TweenInfo.new(getLateSlideRaiseDuration(), Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{
+			CameraOffset = MovementSettings.STAND_OFFSET,
+		}
+	)
+	self._cameraOffsetTween:Play()
 end
 
 function SlideController:_stopSlide()
@@ -89,6 +116,7 @@ function SlideController:_stopSlide()
 	self._frozenSlideVelocity = nil
 	self._lastPosition = nil
 	self._lastPositionCheckTime = 0
+	self._lateSlideRaiseTriggered = false
 
 	local _, humanoid, rootPart = getCharacterParts()
 	local bodyVelocity = rootPart:FindFirstChild("SlideVelocity")
@@ -162,6 +190,7 @@ function SlideController:_startSlide()
 	self._frozenSlideVelocity = nil
 	self._lastPosition = nil
 	self._lastPositionCheckTime = 0
+	self._lateSlideRaiseTriggered = false
 
 	if self._cameraOffsetTween then
 		self._cameraOffsetTween:Cancel()
@@ -235,6 +264,10 @@ function SlideController:_startSlide()
 			self._lastPositionCheckTime = 0
 
 			local progress = math.min((os.clock() - self._slideStartTime) / MovementSettings.SLIDE_DURATION, 1)
+			if progress >= MovementSettings.SLIDE_RISE_START_PROGRESS then
+				self:_startLateSlideRaise(humanoid)
+			end
+
 			local speedFactor = (1 - progress) ^ MovementSettings.SLIDE_POWER
 			local targetSpeed = MovementSettings.SLIDE_END_SPEED
 				+ (MovementSettings.SLIDE_INITIAL_SPEED - MovementSettings.SLIDE_END_SPEED) * speedFactor
@@ -278,7 +311,7 @@ function SlideController:Enable()
 	end
 
 	self._enabled = true
-	ContextActionService:BindAction(ACTION_SLIDE, onSlide, false, Enum.KeyCode.C)
+	ContextActionService:BindAction(ACTION_SLIDE, onSlide, false, Enum.KeyCode.LeftControl)
 end
 
 function SlideController:Disable()

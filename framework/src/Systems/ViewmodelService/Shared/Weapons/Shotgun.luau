@@ -13,7 +13,7 @@ Shotgun.__index = Shotgun
 
 Shotgun.Name = "Shotgun"
 
-type FireSucceeded = () -> ()
+type FireSucceeded = (cooldown: number) -> ()
 
 local function applySpread(direction: Vector3, spreadDegrees: number): Vector3
 	local spreadRadians = math.rad(spreadDegrees)
@@ -259,7 +259,7 @@ function Shotgun:PrimaryFire()
 
 	self._combatService.ShotgunFire:Fire(origin, direction, isAiming)
 	if self._onFireSucceeded then
-		self._onFireSucceeded()
+		self._onFireSucceeded(CombatConfig.Shotgun.FireCooldown)
 	end
 
 	local viewmodelAnimation = nil :: AnimationTrack?

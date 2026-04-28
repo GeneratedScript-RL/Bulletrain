@@ -7,7 +7,7 @@ export type MapDefinition = {
 }
 
 local Shotgun = {
-	Pellets = 8,
+	Pellets = 16,
 	Range = 400,
 	PelletDamage = 12,
 	FireCooldown = 0.9,
@@ -15,6 +15,7 @@ local Shotgun = {
 	AimSpreadMultiplier = 0.8,
 	AimSightsDistance = 4,
 	AimLerpSpeed = 14,
+	AimFOVReduction = 20,
 	MuzzleVelocity = 1500,
 	CameraRecoil = {
 		PitchDegrees = 0.675,
@@ -29,15 +30,27 @@ local Knife = {
 	Range = 7,
 	Damage = 55,
 	SwingCooldown = 0.45,
+	ParryCooldown = 2,
 }
 
 local Config = {
 	Maps = {
-		-- Add entries by exact ReplicatedStorage.Assets.Maps model name:
-		-- ["MapModelName"] = {
-		-- 	DisplayName = "Map Display Name",
-		-- 	Icon = "rbxassetid://0",
-		-- },
+		["Baseplate"] = {
+			DisplayName = "Baseplate",
+			Icon = "rbxassetid://0",
+		},
+		["Cargo Map"] = {
+			DisplayName = "Cargo Map",
+			Icon = "rbxassetid://0",
+		},
+		["Construction Map"] = {
+			DisplayName = "Construction Map",
+			Icon = "rbxassetid://0",
+		},
+		["Sci-Fi Map"] = {
+			DisplayName = "Sci-Fi Map",
+			Icon = "rbxassetid://0",
+		},
 	} :: { [string]: MapDefinition },
 
 	Combat = {
@@ -79,6 +92,7 @@ local Config = {
 			Range = Knife.Range,
 			Damage = Knife.Damage,
 			SwingCooldown = Knife.SwingCooldown,
+			ParryCooldown = Knife.ParryCooldown,
 		},
 	},
 
@@ -98,6 +112,7 @@ local Config = {
 		SLIDE_FOV = 90,
 		FOV_TWEEN_IN = 0.2,
 		FOV_TWEEN_OUT = 0.5,
+		SLIDE_RISE_START_PROGRESS = 0.8,
 		SLIDE_TILT_ANGLE = 0,
 		TILT_TWEEN_TIME = 0.3,
 	},

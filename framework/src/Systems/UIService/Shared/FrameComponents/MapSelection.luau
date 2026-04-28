@@ -26,9 +26,12 @@ local VOTE_HIGHLIGHT_PULSE_TRANSPARENCY = 0.35
 local VOTE_HIGHLIGHT_REST_TRANSPARENCY = 0.9
 local VOTE_HIGHLIGHT_TWEEN_INFO = TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
+type SurfaceTexture = Decal | Texture
+
 type ScreenRecord = {
 	Slot: number,
 	ScreenPart: BasePart,
+	MapTexture: SurfaceTexture?,
 	SurfaceGui: SurfaceGui,
 	NameLabel: TextLabel,
 	ImageLabel: ImageLabel,
@@ -134,6 +137,22 @@ local function resolveImageValue(instance: Instance): string?
 
 	if instance:IsA("Decal") or instance:IsA("Texture") then
 		return instance.Texture
+	end
+
+	return nil
+end
+
+local function findSurfaceTexture(container: Instance): SurfaceTexture?
+	for _, child in ipairs(container:GetChildren()) do
+		if child:IsA("Decal") or child:IsA("Texture") then
+			return child
+		end
+	end
+
+	for _, descendant in ipairs(container:GetDescendants()) do
+		if descendant:IsA("Decal") or descendant:IsA("Texture") then
+			return descendant
+		end
 	end
 
 	return nil
@@ -306,6 +325,7 @@ local function createVotingScreen(screenPart: BasePart, slot: number, trove: Typ
 	return {
 		Slot = slot,
 		ScreenPart = screenPart,
+		MapTexture = findSurfaceTexture(screenPart),
 		SurfaceGui = surfaceGui,
 		NameLabel = nameLabel,
 		ImageLabel = mapImage,
@@ -519,12 +539,18 @@ local function refreshScreens(component: MapSelectionComponent)
 			record.NameLabel.Text = getMapDisplayName(resolvedMapName)
 			record.ImageLabel.Image = image
 			record.ImageLabel.Visible = image ~= ""
+			if record.MapTexture then
+				record.MapTexture.Texture = image
+			end
 			record.EmptyLabel.Visible = image == ""
 			record.EmptyLabel.Text = if image == "" then getMapDisplayName(resolvedMapName) else ""
 		else
 			record.NameLabel.Text = ""
 			record.ImageLabel.Image = ""
 			record.ImageLabel.Visible = false
+			if record.MapTexture then
+				record.MapTexture.Texture = ""
+			end
 			record.EmptyLabel.Visible = false
 			record.EmptyLabel.Text = ""
 		end

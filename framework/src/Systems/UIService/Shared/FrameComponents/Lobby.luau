@@ -119,7 +119,13 @@ local function findTopTabButton(lobbyFrame: GuiObject, tabName: string): GuiButt
 	return findButton(tabFrame, "ImageButton")
 end
 
-local function applyHoverTween(trove: Types.Trove, target: GuiObject?, hoverScale: number, duration: number)
+local function applyHoverTween(
+	trove: Types.Trove,
+	target: GuiObject?,
+	hoverScale: number,
+	duration: number,
+	tweenSettings: { [string]: any }?
+)
 	if not target then
 		return
 	end
@@ -128,7 +134,8 @@ local function applyHoverTween(trove: Types.Trove, target: GuiObject?, hoverScal
 		target,
 		target.Size + UDim2.fromScale(hoverScale, hoverScale),
 		target.Size,
-		duration
+		duration,
+		tweenSettings
 	))
 end
 
@@ -170,8 +177,14 @@ local function bindTopRight(
 	local originalBarYScale = if fullBar then fullBar.Size.Y.Scale else 1
 	local originalBarYOffset = if fullBar then fullBar.Size.Y.Offset else 0
 
-	applyHoverTween(trove, coinsPlusButton, 0.04, 0.12)
-	applyHoverTween(trove, levelStatsButton, 0.03, 0.12)
+	applyHoverTween(trove, coinsPlusButton, 0.04, 0.12, {
+		VisualTarget = currencyPlusFrame,
+		HoverOffset = Vector2.new(0, -4),
+	})
+	applyHoverTween(trove, levelStatsButton, 0.03, 0.12, {
+		VisualTarget = levelPlusFrame,
+		HoverOffset = Vector2.new(0, -4),
+	})
 
 	if coinsPlusButton then
 		trove:Connect(coinsPlusButton.Activated, function()
@@ -282,7 +295,12 @@ local function refreshLobby(component: LobbyComponent)
 end
 
 local function setupPlayButton(playButton: ImageButton, component: LobbyComponent, matchService: any)
-	applyHoverTween(component._trove, playButton, 0.1, 0.2)
+	applyHoverTween(component._trove, playButton, 0.1, 0.2, {
+		VisualTarget = playButton,
+		HoverOffset = Vector2.new(0, -6),
+		HoverRotation = -1,
+		PressScaleMultiplier = 0.95,
+	})
 
 	component._trove:Connect(playButton.Activated, function()
 		if not component.CanJoin then
@@ -329,6 +347,30 @@ function Lobby.init(lobbyFrame: GuiObject): LobbyComponent
 	local inventoryButton = findTopTabButton(lobbyFrame, "Inventory")
 	local shopButton = findTopTabButton(lobbyFrame, "Shop")
 	local dailyTasksFrame = lobbyFrame:FindFirstChild("DailyTasks")
+	local entranceTargets = {} :: { GuiObject }
+	local topTabsFrame = lobbyFrame:FindFirstChild("TopTabs")
+	local playFrame = lobbyFrame:FindFirstChild("Play")
+	local topRightFrame = lobbyFrame:FindFirstChild("TopRight")
+
+	if topTabsFrame and topTabsFrame:IsA("GuiObject") then
+		table.insert(entranceTargets, topTabsFrame)
+	end
+
+	if playFrame and playFrame:IsA("GuiObject") then
+		table.insert(entranceTargets, playFrame)
+	end
+
+	if topRightFrame and topRightFrame:IsA("GuiObject") then
+		table.insert(entranceTargets, topRightFrame)
+	end
+
+	if #entranceTargets > 0 then
+		trove:Add(ObjectComponents.FrameEntranceTween.apply(lobbyFrame, entranceTargets, {
+			StartScale = 0.97,
+			Offset = Vector2.new(0, 14),
+			Stagger = 0.04,
+		}))
+	end
 
 	if playButton then
 		component.PlayButton = playButton
@@ -340,7 +382,11 @@ function Lobby.init(lobbyFrame: GuiObject): LobbyComponent
 
 	if settingsButton then
 		component.SettingsButton = settingsButton
-		applyHoverTween(trove, settingsButton, 0.05, 0.15)
+		applyHoverTween(trove, settingsButton, 0.05, 0.15, {
+			VisualTarget = settingsButton.Parent :: GuiObject?,
+			HoverOffset = Vector2.new(0, -4),
+			HoverRotation = -1,
+		})
 
 		trove:Connect(settingsButton.Activated, function()
 			settingsController:Toggle()
@@ -351,7 +397,10 @@ function Lobby.init(lobbyFrame: GuiObject): LobbyComponent
 
 	if inventoryButton then
 		component.InventoryButton = inventoryButton
-		applyHoverTween(trove, inventoryButton, 0.05, 0.15)
+		applyHoverTween(trove, inventoryButton, 0.05, 0.15, {
+			VisualTarget = inventoryButton.Parent :: GuiObject?,
+			HoverOffset = Vector2.new(0, -4),
+		})
 
 		trove:Connect(inventoryButton.Activated, function()
 			inventoryController:Open()
@@ -362,7 +411,11 @@ function Lobby.init(lobbyFrame: GuiObject): LobbyComponent
 
 	if shopButton then
 		component.ShopButton = shopButton
-		applyHoverTween(trove, shopButton, 0.05, 0.15)
+		applyHoverTween(trove, shopButton, 0.05, 0.15, {
+			VisualTarget = shopButton.Parent :: GuiObject?,
+			HoverOffset = Vector2.new(0, -4),
+			HoverRotation = 1,
+		})
 
 		trove:Connect(shopButton.Activated, function()
 			shopController:Open()

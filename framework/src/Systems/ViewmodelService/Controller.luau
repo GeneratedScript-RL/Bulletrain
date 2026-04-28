@@ -36,6 +36,7 @@ ViewmodelController._isAiming = false
 ViewmodelController._aimBlocked = false
 ViewmodelController.WeaponChanged = nil :: any
 ViewmodelController.ShotgunFired = nil :: any
+ViewmodelController.CooldownStarted = nil :: any
 
 function ViewmodelController:_setEquippedWeaponName(weaponName: string?)
 	if self._equippedWeaponName == weaponName then
@@ -75,9 +76,18 @@ function ViewmodelController:Enable()
 		camera,
 		self._animationController,
 		self._combatService,
-		function()
+		function(cooldown: number)
 			if self.ShotgunFired then
 				self.ShotgunFired:Fire()
+			end
+
+			if self.CooldownStarted then
+				self.CooldownStarted:Fire("Shotgun", "PrimaryFire", cooldown)
+			end
+		end,
+		function(actionName: string, cooldown: number)
+			if self.CooldownStarted then
+				self.CooldownStarted:Fire("Knife", actionName, cooldown)
 			end
 		end
 	)
@@ -200,6 +210,7 @@ function ViewmodelController:Init()
 	self._combatService = framework.GetService("CombatService")
 	self.WeaponChanged = Signal.new()
 	self.ShotgunFired = Signal.new()
+	self.CooldownStarted = Signal.new()
 end
 
 return ViewmodelController

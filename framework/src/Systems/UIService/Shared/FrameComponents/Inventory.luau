@@ -237,6 +237,17 @@ local function buildItemList(component: InventoryComponent, inventoryController:
 		local isEquipped = definition.Name == equippedSkin
 
 		applyItemVisuals(itemHolder, itemName :: TextLabel?, isEquipped, definition.Name)
+		itemTrove:Add(ObjectComponents.ButtonHoverTween.apply(
+			button,
+			button.Size,
+			button.Size,
+			0.12,
+			{
+				VisualTarget = itemHolder,
+				HoverScaleMultiplier = 1.025,
+				HoverOffset = Vector2.new(0, -4),
+			}
+		))
 
 		itemTrove:Connect(button.Activated, function()
 			inventoryController:EquipSkin(component.SelectedCategory, definition.Name)
@@ -306,6 +317,27 @@ function Inventory.init(inventoryFrame: GuiObject): InventoryComponent
 		warn("[UIController] Inventory.Main.ItemList.ScrollingFrame not found")
 	end
 
+	local entranceTargets = {} :: { GuiObject }
+	if mainFrame and mainFrame:IsA("GuiObject") then
+		table.insert(entranceTargets, mainFrame)
+	end
+
+	if tabsFrame and tabsFrame:IsA("GuiObject") then
+		table.insert(entranceTargets, tabsFrame)
+	end
+
+	if exitFrame and exitFrame:IsA("GuiObject") then
+		table.insert(entranceTargets, exitFrame)
+	end
+
+	if #entranceTargets > 0 then
+		trove:Add(ObjectComponents.FrameEntranceTween.apply(inventoryFrame, entranceTargets, {
+			StartScale = 0.96,
+			Offset = Vector2.new(0, 16),
+			Stagger = 0.04,
+		}))
+	end
+
 	if tabsFrame and tabsFrame:IsA("GuiObject") then
 		for _, child in ipairs(tabsFrame:GetChildren()) do
 			if not child:IsA("GuiObject") or not child.Name:match("^Tab") then
@@ -333,7 +365,11 @@ function Inventory.init(inventoryFrame: GuiObject): InventoryComponent
 			component.ExitButton,
 			component.ExitButton.Size + UDim2.fromScale(0.06, 0.06),
 			component.ExitButton.Size,
-			0.12
+			0.12,
+			{
+				VisualTarget = if exitFrame and exitFrame:IsA("GuiObject") then exitFrame else nil,
+				HoverOffset = Vector2.new(0, -4),
+			}
 		))
 
 		trove:Connect(component.ExitButton.Activated, function()
@@ -351,7 +387,11 @@ function Inventory.init(inventoryFrame: GuiObject): InventoryComponent
 			button,
 			button.Size + UDim2.fromScale(0.04, 0.04),
 			button.Size,
-			0.12
+			0.12,
+			{
+				VisualTarget = tabControl.Frame,
+				HoverOffset = Vector2.new(0, -3),
+			}
 		))
 
 		trove:Connect(button.Activated, function()

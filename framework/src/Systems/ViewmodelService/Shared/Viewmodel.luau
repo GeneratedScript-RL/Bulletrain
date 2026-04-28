@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 
 local root = script.Parent.Parent.Parent.Parent
 local CombatConfig = require(root.Systems.CombatService.Shared.Config)
+local MovementSettings = require(root.Shared.Config.MovementSettings)
 local Spring = require(root.Libraries.Spring.Spring)
 local Shotgun = require(script.Parent.Weapons.Shotgun)
 local Knife = require(script.Parent.Weapons.Knife)
@@ -22,11 +23,13 @@ export type Weapon = {
 local Viewmodel = {}
 Viewmodel.__index = Viewmodel
 
-type ShotgunFired = () -> ()
+type ShotgunFired = (cooldown: number) -> ()
+type KnifeCooldownStarted = (actionName: string, cooldown: number) -> ()
 
 local DEFAULT_VIEWMODEL_ROTATION = CFrame.Angles(math.rad(180), 0, math.rad(180))
 local RENDER_STEP_NAME = "Bulletrain_Viewmodel"
 local RECOIL_RENDER_PRIORITY = Enum.RenderPriority.Camera.Value + 1
+local AIM_ZOOM_FOV_EPSILON = 0.05
 
 local function getLerpAlpha(speed: number, deltaTime: number): number
 	if speed <= 0 then
@@ -149,7 +152,8 @@ function Viewmodel.new(
 	camera: Camera,
 	animationController: any,
 	combatService: any,
-	onShotgunFired: ShotgunFired?
+	onShotgunFired: ShotgunFired?,
+	onKnifeCooldownStarted: KnifeCooldownStarted?
 )
 	local self = setmetatable({}, Viewmodel)
 	self._player = localPlayer
@@ -157,6 +161,7 @@ function Viewmodel.new(
 	self._animationController = animationController
 	self._combatService = combatService
 	self._onShotgunFired = onShotgunFired
+	self._onKnifeCooldownStarted = onKnifeCooldownStarted
 	self._vmModel = nil :: Model?
 	self._weapon = nil :: Weapon?
 	self._renderStepBound = false
@@ -168,6 +173,7 @@ function Viewmodel.new(
 	self._aimRequested = false
 	self._isAiming = false
 	self._aimTransitionAlpha = 0
+	self._shotgunAimZoomActive = false
 	self._cameraRecoilSpring = Spring.new(
 		Vector2.zero,
 		CombatConfig.Shotgun.CameraRecoil.Damping,
@@ -379,6 +385,8 @@ function Viewmodel:Start()
 		if self._vmModel then
 			self:_updateViewmodelPivot(deltaTime)
 		end
+
+		self:_updateCameraAimZoom()
 	end)
 end
 
@@ -412,6 +420,25 @@ function Viewmodel:_updateViewmodelPivot(deltaTime: number)
 	)
 
 	vmModel:PivotTo(self:_getBlendedViewmodelPivot())
+end
+
+function Viewmodel:_updateCameraAimZoom()
+	if not self._shotgunAimZoomActive then
+		return
+	end
+
+	local baseFieldOfView = MovementSettings.DEFAULT_FOV
+	if self._camera.FieldOfView > baseFieldOfView + AIM_ZOOM_FOV_EPSILON then
+		return
+	end
+
+	local targetFieldOfView = baseFieldOfView - (CombatConfig.Shotgun.AimFOVReduction * self._aimTransitionAlpha)
+	self._camera.FieldOfView = targetFieldOfView
+
+	local weapon = self._weapon
+	if self._aimTransitionAlpha <= 0 and (not weapon or weapon.Name ~= "Shotgun") then
+		self._shotgunAimZoomActive = false
+	end
 end
 
 function Viewmodel:_updateCameraRecoil()
@@ -451,8 +478,17 @@ function Viewmodel:Equip(weaponName: string, force: boolean?)
 		return
 	end
 
+	self._shotgunAimZoomActive = weaponName == "Shotgun" or self._aimTransitionAlpha > 0
+
 	if weaponName == "Knife" then
-		self._weapon = Knife.new(self._player, self._camera, self._vmModel, self._animationController, self._combatService)
+		self._weapon = Knife.new(
+			self._player,
+			self._camera,
+			self._vmModel,
+			self._animationController,
+			self._combatService,
+			self._onKnifeCooldownStarted
+		)
 	else
 		self._weapon = Shotgun.new(
 			self._player,
@@ -460,10 +496,10 @@ function Viewmodel:Equip(weaponName: string, force: boolean?)
 			self._vmModel,
 			self._animationController,
 			self._combatService,
-			function()
+			function(cooldown: number)
 				self:_applyShotgunRecoil()
 				if self._onShotgunFired then
-					self._onShotgunFired()
+					self._onShotgunFired(cooldown)
 				end
 			end
 		)
@@ -541,6 +577,11 @@ function Viewmodel:Destroy()
 
 	self._sightsAttachment = nil
 	self._aimTransitionAlpha = 0
+	self._shotgunAimZoomActive = false
+
+	if self._camera.FieldOfView <= MovementSettings.DEFAULT_FOV + AIM_ZOOM_FOV_EPSILON then
+		self._camera.FieldOfView = MovementSettings.DEFAULT_FOV
+	end
 
 	if self._vmModel then
 		self._vmModel:Destroy()
